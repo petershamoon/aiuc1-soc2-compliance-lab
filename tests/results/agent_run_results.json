@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-02-21T16:59:43.127479+00:00",
+  "agents": {
+    "SOC 2 Auditor": {
+      "status": "timeout",
+      "tools_called": [],
+      "message_length": 0,
+      "message_preview": "",
+      "elapsed_seconds": 182.8,
+      "error": "Run did not complete within 180s"
+    },
+    "Policy Writer": {
+      "status": "timeout",
+      "tools_called": [],
+      "message_length": 0,
+      "message_preview": "",
+      "elapsed_seconds": 182.6,
+      "error": "Run did not complete within 180s"
+    },
+    "Evidence Collector": {
+      "status": "timeout",
+      "tools_called": [],
+      "message_length": 0,
+      "message_preview": "",
+      "elapsed_seconds": 184.5,
+      "error": "Run did not complete within 180s"
+    },
+    "IaC Deployer": {
+      "status": "timeout",
+      "tools_called": [],
+      "message_length": 0,
+      "message_preview": "",
+      "elapsed_seconds": 207.7,
+      "error": "Run did not complete within 180s"
+    }
+  }
+}
