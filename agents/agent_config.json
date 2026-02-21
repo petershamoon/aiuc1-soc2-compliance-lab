@@ -1,0 +1,68 @@
+{
+  "deployment_info": {
+    "endpoint": "https://aiuc1-hub-eastus2.cognitiveservices.azure.com/",
+    "functions_base_url": "https://aiuc1-soc2-tools.azurewebsites.net/api",
+    "api_version": "2024-07-01-preview",
+    "model_deployments": {
+      "gpt-4.1-mini": "gpt-41-mini",
+      "gpt-4.1-nano": "gpt-41-nano"
+    }
+  },
+  "agents": {
+    "soc2-auditor": {
+      "id": "asst_BOcJaJfhBCqSEZYvdulpMIpL",
+      "model": "gpt-41-mini",
+      "display_name": "SOC 2 Auditor",
+      "tools_count": 8,
+      "tool_names": [
+        "gap_analyzer",
+        "scan_cc_criteria",
+        "evidence_validator",
+        "query_defender_score",
+        "query_policy_compliance",
+        "query_access_controls",
+        "sanitize_output",
+        "log_security_event"
+      ]
+    },
+    "evidence-collector": {
+      "id": "asst_SZannksREqz3xf16npVTr473",
+      "model": "gpt-41-nano",
+      "display_name": "Evidence Collector",
+      "tools_count": 5,
+      "tool_names": [
+        "scan_cc_criteria",
+        "evidence_validator",
+        "sanitize_output",
+        "git_commit_push",
+        "log_security_event"
+      ]
+    },
+    "policy-writer": {
+      "id": "asst_WgvcIDM24qQLeJ3Dea97u3Hr",
+      "model": "gpt-41-mini",
+      "display_name": "Policy Writer",
+      "tools_count": 5,
+      "tool_names": [
+        "scan_cc_criteria",
+        "query_policy_compliance",
+        "query_access_controls",
+        "sanitize_output",
+        "log_security_event"
+      ]
+    },
+    "iac-deployer": {
+      "id": "asst_B6b8AgGJEtOj1gSpiYTczqXL",
+      "model": "gpt-41-mini",
+      "display_name": "IaC Deployer",
+      "tools_count": 5,
+      "tool_names": [
+        "run_terraform_plan",
+        "run_terraform_apply",
+        "generate_poam_entry",
+        "sanitize_output",
+        "log_security_event"
+      ]
+    }
+  }
+}
