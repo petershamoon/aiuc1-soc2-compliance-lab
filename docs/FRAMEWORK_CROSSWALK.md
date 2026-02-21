@@ -1,0 +1,51 @@
+_This document is generated and maintained by the Policy Writer agent._
+
+# Compliance Framework Crosswalk
+
+**Control**: AIUC-1 E012
+
+**Purpose**: This document provides a high-level mapping between the SOC 2 Trust Services Criteria (TSC) and other major compliance frameworks. This crosswalk helps to demonstrate how compliance with SOC 2 can provide a foundation for meeting the requirements of other standards.
+
+## SOC 2 to NIST 800-53
+
+The AICPA provides a detailed mapping of the SOC 2 TSC to the NIST SP 800-53 security and privacy controls. This mapping shows a significant overlap, particularly in the areas of access control, risk management, and system and information integrity.
+
+| SOC 2 TSC Category | Representative NIST 800-53 Control Family |
+| :--- | :--- |
+| **CC1: Control Environment** | PL (Planning), PM (Program Management) |
+| **CC2: Communication & Info** | CA (Security Assessment & Authorization), RA (Risk Assessment) |
+| **CC3: Risk Assessment** | RA (Risk Assessment) |
+| **CC4: Monitoring Activities** | CA (Security Assessment & Authorization), SI (System & Information Integrity) |
+| **CC5: Control Activities** | AC (Access Control), AT (Awareness & Training), CM (Configuration Management) |
+| **CC6: Logical & Physical Access** | AC (Access Control), PE (Physical & Environmental Protection) |
+| **CC7: System Operations** | AU (Audit & Accountability), IR (Incident Response), SI (System & Information Integrity) |
+| **CC8: Change Management** | CM (Configuration Management) |
+| **CC9: Risk Mitigation** | RA (Risk Assessment), CP (Contingency Planning) |
+
+## SOC 2 to ISO 27001
+
+There is a strong correlation between the SOC 2 TSC and the controls listed in Annex A of ISO 27001. Many organizations that achieve ISO 27001 certification find that they have already addressed a majority of the SOC 2 requirements.
+
+| SOC 2 TSC Category | Representative ISO 27001 Annex A Domain |
+| :--- | :--- |
+| **CC1: Control Environment** | A.5 (Information security policies), A.6 (Organization of information security) |
+| **CC2: Communication & Info** | A.7 (Human resource security), A.8 (Asset management) |
+| **CC3: Risk Assessment** | A.8 (Asset management), A.12 (Operations security) |
+| **CC4: Monitoring Activities** | A.16 (Information security incident management) |
+| **CC5: Control Activities** | A.9 (Access control), A.10 (Cryptography) |
+| **CC6: Logical & Physical Access** | A.9 (Access control), A.11 (Physical and environmental security) |
+| **CC7: System Operations** | A.12 (Operations security), A.13 (Communications security) |
+| **CC8: Change Management** | A.14 (System acquisition, development and maintenance) |
+| **CC9: Risk Mitigation** | A.16 (Information security incident management), A.17 (Business continuity) |
+
+## SOC 2 to CIS Azure Foundations Benchmark
+
+The CIS Azure Foundations Benchmark provides prescriptive guidance for securing Azure resources. This benchmark directly supports the implementation of many SOC 2 control activities.
+
+| SOC 2 TSC Category | Representative CIS Azure Benchmark Section |
+| :--- | :--- |
+| **CC5: Control Activities** | Section 3 (Storage Accounts), Section 4 (Databases), Section 5 (Virtual Machines) |
+| **CC6: Logical & Physical Access** | Section 1 (Identity and Access Management), Section 6 (Networking) |
+| **CC7: System Operations** | Section 2 (Logging and Monitoring) |
+
+**Disclaimer**: This is a high-level, illustrative mapping. A detailed, control-by-control analysis is required for a formal compliance effort. The mappings are not exhaustive and are intended for informational purposes only.

@@ -1,0 +1,46 @@
+_This document is generated and maintained by the Policy Writer agent._
+
+# AI Failure Runbook: Hallucination or Fabricated Output
+
+**Control**: AIUC-1 E003
+
+**Purpose**: This runbook provides the immediate steps to take in response to an AI agent generating a factually incorrect, nonsensical, or "hallucinated" output that is presented as fact.
+
+## 1. Triage & Identification
+
+**Objective**: Confirm the hallucination and identify the source.
+
+| Step | Action | Owner | Evidence |
+| :--- | :--- | :--- | :--- |
+| 1.1 | **Receive Alert**: Receive an alert from a known-answer test failure in the CI/CD pipeline, a user report (via the dashboard's "Flag as Incorrect" button), or manual observation. | Pete | Test Log / User Report |
+| 1.2 | **Verify Inaccuracy**: Manually verify the flagged output against a ground-truth source (e.g., Azure Portal, official documentation) to confirm it is a hallucination. | Pete | Screenshot of Ground Truth |
+| 1.3 | **Identify Agent & Prompt**: Identify which agent produced the output and the specific input prompt or data that triggered it. | Pete | App Insights Query Results |
+
+## 2. Containment
+
+**Objective**: Prevent the hallucination from impacting decisions.
+
+| Step | Action | Owner | Evidence |
+| :--- | :--- | :--- | :--- |
+| 2.1 | **Take Output Offline**: Immediately remove the incorrect finding from the compliance dashboard to prevent it from being used in reports. | Pete | Dashboard Screenshot (Before & After) |
+| 2.2 | **Increase Groundedness Threshold**: Adjust the Azure AI Content Safety Groundedness setting to a higher threshold to be more critical of unsupported statements. | Pete | Content Safety Configuration JSON |
+
+## 3. Eradication
+
+**Objective**: Address the root cause of the hallucination.
+
+| Step | Action | Owner | Evidence |
+| :--- | :--- | :--- | :--- |
+| 3.1 | **Improve Grounding Data**: If the hallucination was caused by a lack of data, provide the agent with more relevant, accurate information. This may involve adding more detail to the Azure Function outputs or providing links to documentation in the prompt. | Pete | Git Commit SHA for Function or Prompt Change |
+| 3.2 | **Add Hallucination Test Case**: Create a new test case in the `tests/hallucination/` directory that specifically attempts to reproduce the hallucination. The test should fail until the fix is implemented correctly. | Pete | Git Commit SHA for New Test |
+| 3.3 | **Refine Agent Instructions**: Modify the agent's system prompt to be more critical of its own outputs and to explicitly state when it is making an assumption versus stating a fact based on provided data. | Pete | Git Commit SHA for Instruction Change |
+
+## 4. Recovery & Post-Mortem
+
+**Objective**: Restore normal operations and ensure the issue does not recur.
+
+| Step | Action | Owner | Evidence |
+| :--- | :--- | :--- | :--- |
+| 4.1 | **Run Test Suite**: Execute the full hallucination test suite to confirm that the fix is effective. | CI/CD Pipeline | GitHub Actions Log |
+| 4.2 | **Conduct Post-Mortem**: Document the incident, root cause, and remediation steps in a post-mortem report. | Pete | `docs/reports/post-mortems/YYYY-MM-DD-hallucination-incident.md` |
+| 4.3 | **Update Transparency Statement**: If the hallucination revealed a new limitation of the system, update the `TRANSPARENCY_STATEMENT.md` to disclose it. | Policy Writer (Approved by Pete) | Git Commit SHA |

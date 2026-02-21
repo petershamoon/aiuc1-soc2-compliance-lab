@@ -1,0 +1,67 @@
+_This document is generated and maintained by the Policy Writer agent._
+
+# Vendor Due Diligence Assessments
+
+**Control**: AIUC-1 E006
+
+**Purpose**: This document provides a high-level due diligence assessment of the key third-party vendors used in the AIUC-1 SOC 2 Azure Foundry Compliance Lab project. The project relies on these vendors for critical infrastructure, AI models, and code hosting.
+
+## 1. Microsoft Azure
+
+-   **Service**: Cloud Infrastructure & Platform Services (IaaS/PaaS)
+-   **Usage**: Hosts all project components, including Azure AI Foundry, Azure Functions, and the target assessment infrastructure.
+-   **Assessment**: Microsoft Azure maintains a comprehensive compliance program and is certified against numerous global standards.
+
+| Compliance Standard | Status |
+| :--- | :--- |
+| **SOC 2 Type 2** | **Attested**. Microsoft provides SOC 2 Type 2 attestation reports for Azure, covering the Trust Services Criteria of Security, Availability, and Confidentiality. [1] |
+| **ISO 27001** | **Certified**. Azure is certified for ISO/IEC 27001, demonstrating a robust Information Security Management System (ISMS). [2] |
+| **FedRAMP High** | **Authorized**. Azure Government has a FedRAMP High Provisional Authorization to Operate (P-ATO). Commercial Azure has a FedRAMP High JAB P-ATO. [3] |
+
+-   **Conclusion**: Azure is considered a trusted vendor with a mature security and compliance posture suitable for this project.
+
+## 2. OpenAI
+
+-   **Service**: AI Model Inference (SaaS)
+-   **Usage**: Provides the core LLM capabilities (`gpt-4.1-mini`, `gpt-4.1-nano`) for all four GRC agents.
+-   **Assessment**: OpenAI has undergone independent security and privacy audits to validate its controls.
+
+| Compliance Standard | Status |
+| :--- | :--- |
+| **SOC 2 Type 2** | **Attested**. OpenAI has a SOC 2 Type 2 attestation for its API platform, covering Security, Confidentiality, and Availability. [4] |
+| **ISO 27001** | **Certified**. OpenAI is certified for ISO/IEC 27001. [5] |
+| **Data Privacy** | OpenAI states that data submitted via its API is not used for model training. A Data Processing Addendum (DPA) is available. [6] |
+
+-   **Conclusion**: OpenAI is considered a trusted vendor for AI model inference. The project's use of the API, combined with OpenAI's policies, aligns with the project's data privacy and security requirements.
+
+## 3. GitHub
+
+-   **Service**: Source Code Hosting & CI/CD (SaaS)
+-   **Usage**: Hosts the project's git repository, including all code, documentation, and compliance artifacts. GitHub Actions are used for CI/CD.
+-   **Assessment**: GitHub, a Microsoft subsidiary, leverages Azure's compliance and has its own robust security program.
+
+| Compliance Standard | Status |
+| :--- | :--- |
+| **SOC 2 Type 2** | **Attested**. GitHub has a SOC 2 Type 2 attestation covering Security, Availability, and Confidentiality. [7] |
+| **ISO 27001** | **Certified**. GitHub is certified for ISO/IEC 27001. [8] |
+| **Security Features** | The project utilizes GitHub Actions secrets for credential management and will use `.gitignore` to prevent committing sensitive data, aligning with security best practices.
+
+-   **Conclusion**: GitHub is considered a trusted vendor for source code management and CI/CD, with appropriate security controls in place to protect the project's intellectual property.
+
+## References
+
+[1] Microsoft Trust Center. (2023). *Service Trust Portal - SOC Reports*. [https://servicetrust.microsoft.com/](https://servicetrust.microsoft.com/)
+
+[2] Microsoft Trust Center. (2023). *ISO/IEC 27001:2013 Information Security Management Standards*. [https://docs.microsoft.com/en-us/compliance/regulatory/offering-iso-27001](https://docs.microsoft.com/en-us/compliance/regulatory/offering-iso-27001)
+
+[3] Microsoft Trust Center. (2023). *FedRAMP*. [https://docs.microsoft.com/en-us/compliance/regulatory/offering-fedramp](https://docs.microsoft.com/en-us/compliance/regulatory/offering-fedramp)
+
+[4] OpenAI. (2023). *Enterprise Privacy at OpenAI*. [https://openai.com/enterprise-privacy](https://openai.com/enterprise-privacy)
+
+[5] OpenAI. (2023). *Security at OpenAI*. [https://trust.openai.com/](https://trust.openai.com/)
+
+[6] OpenAI. (2023). *API data usage policies*. [https://openai.com/policies/api-data-usage-policies](https://openai.com/policies/api-data-usage-policies)
+
+[7] GitHub. (2023). *GitHub Security*. [https://github.com/security](https://github.com/security)
+
+[8] GitHub. (2023). *SOC 2 Type 2 and ISO 27001 reports are now available*. [https://github.blog/2023-03-22-soc-2-type-2-and-iso-27001-reports-are-now-available/](https://github.blog/2023-03-22-soc-2-type-2-and-iso-27001-reports-are-now-available/)
