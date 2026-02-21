@@ -1,77 +1,57 @@
 #!/usr/bin/env python3
 # ---------------------------------------------------------------------------
-# AIUC-1 SOC 2 Compliance Lab — Phase 5 Test Runner
+# AIUC-1 SOC 2 Compliance Lab — Phase 5: Main Test Runner (DB-enabled)
 # ---------------------------------------------------------------------------
-# Standalone script that executes the full test suite, captures results,
-# and writes a structured JSON results file for the report generator.
-#
-# Usage:
-#   python3 tests/run_tests.py
-#
-# Output:
-#   tests/results/test_results.json  — machine-readable results
-#   tests/results/test_output.txt    — full pytest output
-# ---------------------------------------------------------------------------
-
-import subprocess
-import sys
+import pytest
 import os
-import json
-from datetime import datetime, timezone
-
-TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
-RESULTS_DIR = os.path.join(TESTS_DIR, "results")
-REPO_ROOT = os.path.dirname(TESTS_DIR)
-
+import sys
 
 def main():
-    os.makedirs(RESULTS_DIR, exist_ok=True)
+    # Load connection string from the file created during provisioning
+    # This makes the DB connection available to the pytest fixtures
+    try:
+        with open("/tmp/test_results_env.txt") as f:
+            for line in f:
+                if "=" in line:
+                    key, value = line.strip().split("=", 1)
+                    os.environ[key] = value
+        print("INFO: Database connection string loaded into environment.")
+    except FileNotFoundError:
+        print("WARN: /tmp/test_results_env.txt not found. Database logging will be skipped.")
 
-    json_report_path = os.path.join(RESULTS_DIR, "test_results.json")
-    txt_output_path = os.path.join(RESULTS_DIR, "test_output.txt")
-
-    print("=" * 70)
-    print("AIUC-1 SOC 2 Compliance Lab — Phase 5 Test Suite")
-    print(f"Started: {datetime.now(timezone.utc).isoformat()}")
-    print("=" * 70)
-    print()
-
-    # Run pytest with JSON report plugin
-    cmd = [
-        sys.executable, "-m", "pytest",
-        TESTS_DIR,
-        "--ignore", os.path.join(TESTS_DIR, "run_tests.py"),
-        "-v",
-        "--tb=short",
-        "--json-report",
-        f"--json-report-file={json_report_path}",
-        "--json-report-indent=2",
-        "-p", "no:warnings",
+    # Define test modules to run in order
+    test_files = [
+        "tests/test_integration.py",
+        "tests/test_control_enforcement.py",
+        "tests/test_hallucination_prevention.py",
+        "tests/test_agent_functionality.py",
     ]
 
-    print(f"Running: {' '.join(cmd)}")
-    print()
+    exit_code = 0
+    for test_file in test_files:
+        print(f"\n{'='*25} RUNNING: {os.path.basename(test_file)} {'='*25}\n")
+        # The result_recorder fixture in conftest.py handles writing to the database.
+        # We still generate JSON reports for a secondary, human-readable summary.
+        report_path = os.path.join("tests", "results", f"pytest_{os.path.basename(test_file).replace('test_', '')}.json")
+        ret = pytest.main(["-v", test_file, f"--json-report-file={report_path}"])
+        if ret != 0:
+            print(f"ERROR: {test_file} failed with exit code {ret}")
+            exit_code = 1 # Propagate failure
 
-    with open(txt_output_path, "w") as out_file:
-        result = subprocess.run(
-            cmd,
-            cwd=REPO_ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        out_file.write(result.stdout)
-        print(result.stdout)
+    print(f"\n{'='*25} RUNNING: Agent Validation {'='*25}\n")
+    # The agent validation runner has its own DB writing logic.
+    try:
+        # Ensure the module is importable
+        sys.path.insert(0, os.path.dirname(__file__))
+        import run_agent_validation
+        run_agent_validation.main()
+        print("INFO: Agent validation completed.")
+    except Exception as e:
+        print(f"ERROR: Agent validation runner failed: {e}")
+        exit_code = 1
 
-    print()
-    print("=" * 70)
-    print(f"Exit code: {result.returncode}")
-    print(f"Results JSON: {json_report_path}")
-    print(f"Output log:   {txt_output_path}")
-    print("=" * 70)
-
-    return result.returncode
-
+    print(f"\n{'='*25} TEST RUN COMPLETE {'='*25}\n")
+    sys.exit(exit_code)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
