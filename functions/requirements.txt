@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------------------
+# AIUC-1 SOC 2 Compliance Lab — Azure Functions Dependencies
+# ---------------------------------------------------------------------------
+# Pin major.minor versions for reproducibility.  The Azure SDK packages
+# follow a consistent versioning scheme; we use compatible-release (~=)
+# to allow patch updates while preventing breaking changes.
+# ---------------------------------------------------------------------------
+
+# Azure Functions runtime
+azure-functions~=1.21
+
+# Azure Identity — DefaultAzureCredential for SP + Managed Identity auth
+azure-identity~=1.19
+
+# Azure Management SDK — one package per resource type we query
+azure-mgmt-resource~=23.2        # Resource groups, generic resource queries
+azure-mgmt-network~=27.0         # NSGs, VNets, public IPs
+azure-mgmt-storage~=21.2         # Storage accounts
+azure-mgmt-sql~=3.0              # SQL Servers, databases, auditing
+azure-mgmt-security~=7.0         # Defender for Cloud, Secure Score
+azure-mgmt-authorization~=4.0    # RBAC role assignments
+azure-mgmt-policyinsights~=1.1   # Azure Policy compliance state
+
+# Application Insights logging via OpenCensus
+opencensus-ext-azure~=1.1
+opencensus~=0.11
+
+# Utilities
+python-dateutil~=2.9
