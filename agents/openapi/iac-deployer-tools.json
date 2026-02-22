@@ -1,0 +1,237 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "AIUC-1 IaC Deployer Tools",
+    "description": "Azure Functions providing Terraform plan/apply and POA&M capabilities for the iac-deployer agent.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://aiuc1-soc2-tools.azurewebsites.net/api",
+      "description": "AIUC-1 Azure Function App"
+    }
+  ],
+  "paths": {
+    "/run_terraform_plan": {
+      "post": {
+        "operationId": "run_terraform_plan",
+        "summary": "Run terraform plan for a remediation module",
+        "description": "Run 'terraform plan' for a remediation module and return the execution plan. Includes a diff of resources to be created, modified, or destroyed. NEVER call this for modules that modify Entra ID (Azure AD) users, groups, or service principals — those changes are out of scope. NEVER call terraform destroy.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["module_name"],
+                "properties": {
+                  "module_name": {
+                    "type": "string",
+                    "description": "Name of the Terraform remediation module to plan. Must be one of the approved modules in the terraform/modules/ directory."
+                  },
+                  "variables": {
+                    "type": "object",
+                    "description": "Optional Terraform variable overrides for the plan."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Terraform plan output",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "plan_output": {"type": "string"},
+                    "resources_to_add": {"type": "integer"},
+                    "resources_to_change": {"type": "integer"},
+                    "resources_to_destroy": {"type": "integer"},
+                    "plan_id": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/run_terraform_apply": {
+      "post": {
+        "operationId": "run_terraform_apply",
+        "summary": "Apply a previously planned Terraform remediation",
+        "description": "Apply a previously planned Terraform remediation. REQUIRES human approval — present the plan output to the user and obtain explicit written approval before calling this. NEVER apply changes that destroy resources or modify Entra ID. AIUC-1 control D003.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["plan_id", "approval_token"],
+                "properties": {
+                  "plan_id": {
+                    "type": "string",
+                    "description": "The plan_id returned by run_terraform_plan."
+                  },
+                  "approval_token": {
+                    "type": "string",
+                    "description": "Human approval token confirming the plan has been reviewed and approved."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Terraform apply result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "applied": {"type": "boolean"},
+                    "resources_created": {"type": "integer"},
+                    "resources_modified": {"type": "integer"},
+                    "apply_timestamp": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/generate_poam_entry": {
+      "post": {
+        "operationId": "generate_poam_entry",
+        "summary": "Generate a Plan of Action and Milestones (POA&M) entry for a compliance finding",
+        "description": "Generate a structured POA&M entry for a compliance finding. The POA&M entry documents the finding, risk level, planned remediation action, responsible party, and target completion date. Used to track open compliance gaps through to resolution.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["finding_id", "cc_category", "description", "risk_level", "remediation_plan"],
+                "properties": {
+                  "finding_id": {
+                    "type": "string",
+                    "description": "Unique identifier for the compliance finding."
+                  },
+                  "cc_category": {
+                    "type": "string",
+                    "description": "The SOC 2 CC category this finding belongs to.",
+                    "enum": ["CC6", "CC7", "CC8", "CC9"]
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Description of the compliance gap or finding."
+                  },
+                  "risk_level": {
+                    "type": "string",
+                    "description": "Risk level of the finding.",
+                    "enum": ["low", "medium", "high", "critical"]
+                  },
+                  "remediation_plan": {
+                    "type": "string",
+                    "description": "Planned remediation action to address the finding."
+                  },
+                  "target_date": {
+                    "type": "string",
+                    "description": "Optional. Target completion date for the remediation in ISO 8601 format (YYYY-MM-DD)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "POA&M entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "poam_id": {"type": "string"},
+                    "entry": {"type": "object"},
+                    "created_timestamp": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sanitize_output": {
+      "post": {
+        "operationId": "sanitize_output",
+        "summary": "Sanitize text output by redacting secrets, PII, and sensitive identifiers",
+        "description": "Redact sensitive information from text before returning it to the user. AIUC-1 controls A004 and A006.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["text"],
+                "properties": {
+                  "text": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sanitized text",
+            "content": {
+              "application/json": {"schema": {"type": "object"}}
+            }
+          }
+        }
+      }
+    },
+    "/log_security_event": {
+      "post": {
+        "operationId": "log_security_event",
+        "summary": "Log a security-relevant event to Application Insights",
+        "description": "Log a security-relevant event to Azure Application Insights for audit trail. AIUC-1 control E015.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["event_type", "severity", "agent_id", "description"],
+                "properties": {
+                  "event_type": {
+                    "type": "string",
+                    "enum": ["prompt_injection_attempt", "scope_violation", "tool_call_rejected", "pii_redacted", "compliance_finding", "access_denied", "policy_violation", "audit_log"]
+                  },
+                  "severity": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+                  "agent_id": {"type": "string"},
+                  "description": {"type": "string"},
+                  "metadata": {"type": "object"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Event logged",
+            "content": {
+              "application/json": {"schema": {"type": "object"}}
+            }
+          }
+        }
+      }
+    }
+  }
+}
