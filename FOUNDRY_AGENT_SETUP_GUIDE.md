@@ -1,96 +1,66 @@
-# Walkthrough: Connecting Your GRC Tools to the Foundry Agent
+# Foundry Agent Setup Guide (OpenAPI + UI-Driven)
 
-This guide walks you through connecting your 12 GRC Azure Functions to the SOC 2 Learning Agent in Azure AI Foundry. This follows the methodology where the agent provides reasoning, and the functions act as simple, stateless data providers.
+This guide provides the **simplest, most UI-driven path** to connect your 12 Azure Functions as tools to your Foundry agent. This allows you to properly validate the AIUC-1 controls end-to-end.
 
-We will use the `register_tools.py` script to do this. The script uses the Azure AI SDK to tell your Foundry agent about your deployed functions, defining them as callable "tools."
+**The core problem:** The Foundry portal UI does *not* let you define custom tools from scratch. You can only attach tools that are already defined, either through built-in options (like Bing Search) or by referencing a pre-existing definition (like an OpenAPI spec).
+
+**The solution:** We will use the **OpenAPI tool** option. This is the most UI-friendly approach because it lets you do most of the work in the portal.
 
 ---
 
-### Step 1: Get Your Azure Function App Details
+## The 3-Step Process
 
-Before running the script, you need two pieces of information from the Azure Portal:
+1.  **Create the OpenAPI Specification** (I have already done this for you).
+2.  **Create a "Connection" in the Foundry Portal** (This is a one-time, click-through UI setup to securely store your Function App's API key).
+3.  **Add the OpenAPI Tool in the Agent Builder UI** (This is where you point the agent to your spec file and the connection you just created).
 
-1.  **Function App URL**: The public URL of your deployed Function App.
-2.  **Function App Master Key**: The `_master` host key that grants access to all functions.
+---
 
-**How to find them:**
+### Step 1: The OpenAPI Specification (Already Done)
 
-1.  Navigate to your Function App in the Azure Portal.
-2.  The URL is on the main **Overview** page.
-3.  For the key, go to **App Keys** under the "Functions" section in the left menu.
-4.  Copy the value of the `_master` key.
+I have already generated a complete OpenAPI 3.0 specification for all 12 of your Azure Functions. It's located in the repo at `functions_openapi.json`.
 
-### Step 2: Set Up Your Environment
+This file tells Foundry what your tools are, what parameters they take, and how to call them.
 
-The `register_tools.py` script can get these values from a `.env` file or ask you for them directly. For simplicity, we'll let it ask you the first time.
+### Step 2: Create the API Key Connection in the Portal (5 Clicks)
 
-You also need to be logged into Azure in your terminal:
+This is how you securely give your agent the API key for your Function App without hardcoding it.
 
-```bash
-# Log in to your Azure account
-az login
+1.  Go to the **Azure AI Studio** and open your project.
+2.  On the left navigation, click the **Settings** gear icon (⚙️).
+3.  Under **Connected resources**, click **+ New connection**.
+4.  In the "Create a new connection" panel:
+    *   **Connection type**: Select **Custom**.
+    *   **Connection name**: `aiuc1-soc2-functions-key`
+    *   **Add key-value pairs**:
+        *   **Key**: `x-functions-key`
+        *   **Value**: `YOUR_FUNCTION_APP_MASTER_KEY` (Paste your Function App's `_master` key here)
+5.  Click **Create**.
 
-# Set the subscription your Foundry project is in
-az account set --subscription "Your-Subscription-Name-or-ID"
-```
 
-### Step 3: Run the Registration Script
+### Step 3: Add the OpenAPI Tool to Your Agent (in the UI)
 
-This is the core step. The script handles everything for you.
+Now, you'll tell your agent to use the spec file and the connection you just made.
 
-1.  Open a terminal and navigate to the `agents` directory inside the project:
-    ```bash
-    cd /path/to/your/aiuc1-soc2-compliance-lab/agents
-    ```
+1.  In your AI Studio project, go to the **Build** tab.
+2.  Click on your **SOC 2 Learning Agent** to open the agent builder.
+3.  Click on the **Tools** section to expand it.
+4.  Click **+ Add a tool**.
+5.  From the dropdown, select **OpenAPI tool**.
+6.  In the "Add a tool" panel:
+    *   **OpenAPI spec**: Upload the `functions_openapi.json` file from your local clone of the repository.
+    *   **Authentication**: Select **API Key**.
+    *   **Connection**: From the dropdown, select the `aiuc1-soc2-functions-key` connection you created in Step 2.
+7.  Click **Add**.
 
-2.  Install the required Python packages:
-    ```bash
-    pip install -r requirements-deploy.txt
-    ```
+---
 
-3.  Run the script:
-    ```bash
-    python register_tools.py
-    ```
+## You're Done.
 
-4.  The script will prompt you for your Function App URL and Master Key. Paste them in.
+That's it. Your agent now has all 12 functions available as callable tools. You can go to the **Playground** and start testing the AIUC-1 controls by giving it prompts like:
 
-**What the script does:**
+*   `"Scan the 'aiuc1-lab-prod' resource group for CC5 compliance gaps."`
+*   `"What are the access controls for the main storage account?"`
+*   `"There is a finding that a storage account allows public access. Generate a POA&M entry for it."`
 
-*   It constructs an `OpenAITool` definition for each of your 12 functions.
-*   This definition tells the agent:
-    *   The function's name (e.g., `grc_tools_gap_analyzer`).
-    *   A description of what it does.
-    *   The parameters it expects (e.g., `cc_category`, `resource_group`).
-    *   The exact HTTP endpoint to call.
-    *   The API key to use for authentication.
-*   It then connects to your Foundry project and creates a new version of the `soc2-learning-agent`, attaching the system prompt and all 12 tool definitions.
-
-If successful, you will see a confirmation message: `✅ Successfully registered the agent and its tools!`
-
-### Step 4: Test in the Foundry Playground
-
-Now for the fun part. Your agent is now aware of its tools. You can test its ability to reason and use them.
-
-1.  Go to your project in the **Azure AI Studio** (Foundry Portal).
-2.  Navigate to **Agents** and open the **Playground** for the `soc2-learning-agent`.
-3.  Under the **Tools** section, you should now see all 12 of your GRC functions listed.
-
-**Example Prompts to Try:**
-
-*   **Test Tool Selection:**
-    > `Is my storage account compliant with CC5?`
-
-    The agent should reason that this requires scanning for gaps and decide to call the `grc_tools_gap_analyzer` function. It will then ask you for the `resource_group` parameter.
-
-*   **Test Parameter Elicitation:**
-    > `Run a gap analysis.`
-
-    The agent knows `gap_analyzer` needs a `cc_category` and `resource_group`. It should ask you for this missing information before it can proceed.
-
-*   **Test Human-in-the-Loop (Approval):**
-    > `I have a finding that needs a remediation plan. The module is called 'fix-storage-tls'. Run the terraform apply.`
-
-    The agent should refuse. It will see that the `run_terraform_apply` tool requires a `human_approval_confirmation` parameter. It should state that it has prepared the plan but needs your explicit approval to apply it.
-
-This setup perfectly aligns with Ethan Troy's methodology: the agent is the reasoning engine that decides *which* tool to use and *why*, while the Azure Functions are the simple, deterministic endpoints that just provide the data.
+You will see the agent call the appropriate function (`gap_analyzer`, `query_access_controls`, `generate_poam_entry`) in the debug console, and you can validate that the controls in your system prompt are being enforced.
