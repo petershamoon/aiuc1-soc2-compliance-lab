@@ -202,13 +202,17 @@ def gap_analyzer(req: func.HttpRequest) -> func.HttpResponse:
     gaps = checker(settings) if checker else []
     if resource_group:
         gaps = [g for g in gaps if g.get("resource_group") == resource_group]
+    scanner_status = "implemented" if cc_category in _GAP_CHECKERS else "not_yet_implemented"
     result = {
         "cc_category": cc_category,
         "cc_description": CC_RESOURCE_MAP.get(cc_category, {}).get("description", ""),
+        "scanner_status": scanner_status,
         "total_gaps": len(gaps),
         "gaps": gaps,
         "scan_timestamp": datetime.now(timezone.utc).isoformat(),
-        "note": "Gaps are heuristic findings. The SOC 2 Auditor agent determines severity and recommendations.",
+        "note": "Gaps are heuristic findings. The SOC 2 Auditor agent determines severity and recommendations."
+               + (f" Scanner for {cc_category} is not yet implemented — the agent should note this as a coverage gap." if scanner_status == "not_yet_implemented" else ""),
+        "implemented_categories": sorted(_GAP_CHECKERS.keys()),
     }
     return build_success_response("gap_analyzer", result,
                                   aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"])
@@ -628,12 +632,42 @@ def _get_secure_scores(settings) -> dict:
     scores = {}
     try:
         for score in security_client.secure_scores.list():
+            # Azure SDK versions vary in attribute names for SecureScoreItem.
+            # Try multiple paths to handle both old and new SDK versions.
+            current_score = None
+            max_score = None
+            percentage = None
+            # New SDK: properties are directly on the object
+            if hasattr(score, 'current_score'):
+                current_score = score.current_score
+            elif hasattr(score, 'score') and score.score is not None:
+                current_score = getattr(score.score, 'current', None)
+            # Try .current as a direct attribute
+            if current_score is None:
+                current_score = getattr(score, 'current', None)
+
+            if hasattr(score, 'max_score'):
+                max_score = score.max_score
+            elif hasattr(score, 'score') and score.score is not None:
+                max_score = getattr(score.score, 'max', None)
+            if max_score is None:
+                max_score = getattr(score, 'max', None)
+
+            if hasattr(score, 'percentage'):
+                percentage = score.percentage
+            elif hasattr(score, 'score') and score.score is not None:
+                percentage = getattr(score.score, 'percentage', None)
+
+            # Calculate percentage if we have current and max but no percentage
+            if percentage is None and current_score is not None and max_score and max_score > 0:
+                percentage = round(current_score / max_score * 100, 2)
+
             scores = {
-                "score_name": score.display_name or score.name,
-                "current_score": score.score.current if score.score else None,
-                "max_score": score.score.max if score.score else None,
-                "percentage": score.score.percentage if score.score else None,
-                "weight": score.weight,
+                "score_name": getattr(score, 'display_name', None) or getattr(score, 'name', 'unknown'),
+                "current_score": current_score,
+                "max_score": max_score,
+                "percentage": percentage,
+                "weight": getattr(score, 'weight', None),
             }
             break
     except Exception as e:
@@ -662,7 +696,7 @@ def _get_security_assessments(settings, max_results: int = 50) -> list[dict]:
                     "category": assessment.metadata.categories[0] if assessment.metadata and assessment.metadata.categories else "uncategorised",
                     "description": assessment.metadata.description if assessment.metadata else "",
                     "remediation_description": assessment.metadata.remediation_description if assessment.metadata else "",
-                    "resource_type": assessment.resource_details.source if assessment.resource_details else "unknown",
+                    "resource_type": getattr(assessment.resource_details, 'source', None) or getattr(assessment.resource_details, 'id', 'unknown') if assessment.resource_details else "unknown",
                 })
                 count += 1
     except Exception as e:
@@ -719,8 +753,10 @@ def _get_compliance_summary(settings) -> dict:
     summary = {"compliant": 0, "non_compliant": 0, "exempt": 0, "conflicting": 0, "not_started": 0}
     try:
         sub_id = settings.azure_subscription_id
+        # The PolicyInsightsClient SDK expects policy_states_resource as
+        # the first positional argument, not a keyword argument.
         results = policy_client.policy_states.summarize_for_subscription(
-            subscription_id=sub_id, policy_states_resource="latest")
+            policy_states_resource="latest", subscription_id=sub_id)
         if results and results.value:
             for result in results.value:
                 if result.results:
@@ -739,8 +775,9 @@ def _get_non_compliant_policies(settings, max_results: int = 50) -> list[dict]:
     non_compliant = []
     try:
         sub_id = settings.azure_subscription_id
+        # Same fix: policy_states_resource must be the first positional arg.
         results = policy_client.policy_states.list_query_results_for_subscription(
-            subscription_id=sub_id, policy_states_resource="latest", query_options=None)
+            policy_states_resource="latest", subscription_id=sub_id)
         seen_policies = {}
         count = 0
         for state in results:
