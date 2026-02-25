@@ -1,228 +1,238 @@
-# ---------------------------------------------------------------------------
-# AIUC-1 SOC 2 Compliance Lab — Consolidated Azure Functions Entry Point
-# ---------------------------------------------------------------------------
-# Azure Functions V2 Python model requires a single function_app.py at the
-# package root.  This file creates one FunctionApp instance and registers
-# all 12 HTTP-triggered GRC tool endpoints via Blueprints.
+# ===========================================================================
+# AIUC-1 SOC 2 Compliance Lab — Azure Functions (Queue-Triggered)
+# ===========================================================================
+# All 12 functions use Azure Storage Queue triggers for integration with
+# Azure AI Foundry Agent Service (AzureFunctionTool).
 #
 # Architecture:
-#   "Tools provide data, agents provide judgment."
-#   Functions return raw Azure state; the AI agents reason about compliance.
+#   Agent → writes to {function}-input queue
+#   Function → triggers, processes, writes result to {function}-output queue
+#   Agent → reads from {function}-output queue
 #
-# Function categories:
-#   Data Providers (6):  gap_analyzer, scan_cc_criteria, evidence_validator,
-#                        query_access_controls, query_defender_score,
-#                        query_policy_compliance
-#   Action Functions (4): generate_poam_entry, run_terraform_plan,
-#                         run_terraform_apply, git_commit_push
-#   Safety Functions (2): sanitize_output, log_security_event
-#
-# AIUC-1 Controls enforced across all functions:
-#   AIUC-1-09  Scope Boundaries    — only allowed resource groups
-#   AIUC-1-17  Data Minimization   — return only compliance-relevant fields
-#   AIUC-1-18  Input Validation    — reject malformed inputs early
-#   AIUC-1-19  Output Filtering    — sanitise every response
-#   AIUC-1-22  Logging             — log every invocation to App Insights
-#   AIUC-1-34  Credential Mgmt    — no hardcoded secrets
-# ---------------------------------------------------------------------------
+# This pattern provides:
+#   - AIUC-1-22: Immutable message trail in queue storage
+#   - AIUC-1-11: Async pattern supports human-in-the-loop
+#   - AIUC-1-23: Every tool call is a timestamped queue message
+#   - No API keys in agent config (auth via Azure managed identity)
+# ===========================================================================
+
 import azure.functions as func
-import logging
 import json
-from datetime import datetime, timezone
-
-# Create the single FunctionApp instance for all 12 functions
-app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
-
-# ---------------------------------------------------------------------------
-# Shared imports — available to all inline handlers below
-# ---------------------------------------------------------------------------
-import sys
+import logging
 import os
+import hashlib
+import hmac
+import subprocess
+import re
+from datetime import datetime, timezone, timedelta
+from typing import Any, Optional
 
-# Ensure shared modules are importable from the functions root
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
+# Shared modules
 from shared.config import get_settings
-from shared.azure_clients import get_mgmt_client, get_credential
 from shared.sanitizer import redact_secrets, redact_dict
+from shared.validators import validate_cc_category, validate_resource_group, validate_required_fields
 from shared.logger import log_event, log_function_call
-from shared.response import build_success_response, build_error_response
-from shared.validators import (
-    validate_cc_category,
-    validate_resource_group,
-    validate_required_fields,
-    CC_RESOURCE_MAP,
-    VALID_CC_CATEGORIES,
-)
+from shared.response import build_success_envelope, build_error_envelope
+from shared.azure_clients import get_mgmt_client
 
-logger = logging.getLogger("aiuc1.grc_tools")
+logger = logging.getLogger("aiuc1-soc2")
+
+app = func.FunctionApp()
+
+
+# ===========================================================================
+# Helper: Parse queue message and write response to output queue
+# ===========================================================================
+def parse_queue_msg(msg: func.QueueMessage) -> tuple[dict, str]:
+    """Parse a queue message body as JSON.
+    
+    Returns:
+        Tuple of (parsed body dict, correlation_id string).
+        The CorrelationId is extracted and must be echoed back in the response
+        for Azure AI Foundry Agent Service to match request/response pairs.
+    """
+    body = msg.get_body().decode("utf-8")
+    if not body or body.strip() == "":
+        return {}, ""
+    try:
+        parsed = json.loads(body)
+        correlation_id = parsed.pop("CorrelationId", "")
+        return parsed, correlation_id
+    except json.JSONDecodeError:
+        return {"_raw": body}, ""
+
+
+def write_output(output: func.Out[str], envelope: dict, correlation_id: str = ""):
+    """Serialize envelope and write to output queue.
+    
+    The response includes:
+    - Value: JSON string of the envelope (what the agent sees)
+    - CorrelationId: echoed from the input message for request/response matching
+    """
+    response = {
+        "Value": json.dumps(envelope, default=str),
+        "CorrelationId": correlation_id,
+    }
+    output.set(json.dumps(response, default=str))
+
+
+# ===========================================================================
+# CC Resource Map (shared across gap_analyzer and scan_cc_criteria)
+# ===========================================================================
+CC_RESOURCE_MAP = {
+    "CC1": {"description": "Control Environment", "checks": [
+        "Azure Policy assignment coverage", "Management group hierarchy",
+        "Subscription-level RBAC governance"]},
+    "CC2": {"description": "Communication and Information", "checks": [
+        "Azure Activity Log alert rules", "Action Group configurations",
+        "Service Health alert coverage"]},
+    "CC3": {"description": "Risk Assessment", "checks": [
+        "Microsoft Defender for Cloud coverage", "Vulnerability assessment configurations",
+        "Risk register integration"]},
+    "CC4": {"description": "Monitoring Activities", "checks": [
+        "Application Insights availability", "Log Analytics workspace retention",
+        "Diagnostic settings coverage"]},
+    "CC5": {"description": "Control Activities", "checks": [
+        "Storage account encryption (at-rest and in-transit)", "TLS version enforcement",
+        "Key Vault access policies"]},
+    "CC6": {"description": "Logical and Physical Access Controls", "checks": [
+        "NSG rule analysis", "RBAC role assignment review",
+        "Conditional Access policy coverage"]},
+    "CC7": {"description": "System Operations", "checks": [
+        "SQL Server auditing", "Database backup configuration",
+        "Patch management compliance"]},
+    "CC8": {"description": "Change Management", "checks": [
+        "Azure Policy compliance state", "Terraform state drift detection",
+        "Deployment pipeline audit logs"]},
+    "CC9": {"description": "Risk Mitigation", "checks": [
+        "Defender Secure Score", "Remediation plan tracking",
+        "Insurance and BCP documentation"]},
+}
 
 
 # ===========================================================================
 # 1. gap_analyzer — Data Provider (1 of 6)
 # ===========================================================================
-def _check_cc5_storage_gaps(settings) -> list[dict]:
-    """CC5 — Control Activities: check storage account configurations."""
+def _analyze_cc5_gaps(settings) -> list[dict]:
     gaps = []
-    try:
-        storage_client = get_mgmt_client("storage")
-        for rg in settings.allowed_resource_groups:
-            try:
-                accounts = storage_client.storage_accounts.list_by_resource_group(rg)
-                for acct in accounts:
-                    if acct.allow_blob_public_access:
-                        gaps.append({
-                            "resource": acct.name, "resource_group": rg,
-                            "cc_category": "CC5",
-                            "gap": "Public blob access is enabled",
-                            "expected": "allow_blob_public_access = false",
-                            "actual": "allow_blob_public_access = true",
-                            "risk": "Data exposure — blobs may be publicly readable",
-                        })
-                    if not acct.enable_https_traffic_only:
-                        gaps.append({
-                            "resource": acct.name, "resource_group": rg,
-                            "cc_category": "CC5",
-                            "gap": "HTTPS-only traffic not enforced",
-                            "expected": "enable_https_traffic_only = true",
-                            "actual": "enable_https_traffic_only = false",
-                            "risk": "Data in transit may be unencrypted",
-                        })
-                    if acct.minimum_tls_version and acct.minimum_tls_version != "TLS1_2":
-                        gaps.append({
-                            "resource": acct.name, "resource_group": rg,
-                            "cc_category": "CC5",
-                            "gap": f"TLS version is {acct.minimum_tls_version}",
-                            "expected": "minimum_tls_version = TLS1_2",
-                            "actual": f"minimum_tls_version = {acct.minimum_tls_version}",
-                            "risk": "Weak TLS may allow downgrade attacks",
-                        })
-            except Exception as e:
-                logger.warning("Error scanning storage in %s: %s", rg, e)
-    except Exception as e:
-        logger.error("Failed to create storage client: %s", e)
+    storage_client = get_mgmt_client("storage")
+    for rg in settings.allowed_resource_groups:
+        try:
+            for acct in storage_client.storage_accounts.list_by_resource_group(rg):
+                if acct.allow_blob_public_access:
+                    gaps.append({"resource": acct.name, "resource_group": rg,
+                                 "gap": "Public blob access is enabled",
+                                 "severity": "high", "cc_criteria": "CC5.2",
+                                 "remediation": "Set allowBlobPublicAccess to false"})
+                if not acct.enable_https_traffic_only:
+                    gaps.append({"resource": acct.name, "resource_group": rg,
+                                 "gap": "HTTPS-only traffic not enforced",
+                                 "severity": "high", "cc_criteria": "CC5.2",
+                                 "remediation": "Enable supportsHttpsTrafficOnly"})
+                tls = acct.minimum_tls_version or "TLS1_0"
+                if tls != "TLS1_2":
+                    gaps.append({"resource": acct.name, "resource_group": rg,
+                                 "gap": f"Minimum TLS version is {tls} (should be TLS1_2)",
+                                 "severity": "medium", "cc_criteria": "CC5.2",
+                                 "remediation": "Set minimumTlsVersion to TLS1_2"})
+                if acct.encryption and not acct.encryption.require_infrastructure_encryption:
+                    gaps.append({"resource": acct.name, "resource_group": rg,
+                                 "gap": "Infrastructure encryption (double encryption) not enabled",
+                                 "severity": "low", "cc_criteria": "CC5.2",
+                                 "remediation": "Enable infrastructure encryption for defense in depth"})
+        except Exception as e:
+            logger.warning("Error scanning storage in %s: %s", rg, e)
     return gaps
 
 
-def _check_cc6_network_gaps(settings) -> list[dict]:
-    """CC6 — Logical Access Controls: check NSG rules for overly permissive access."""
+def _analyze_cc6_gaps(settings) -> list[dict]:
     gaps = []
-    try:
-        network_client = get_mgmt_client("network")
-        for rg in settings.allowed_resource_groups:
-            try:
-                nsgs = network_client.network_security_groups.list(rg)
-                for nsg in nsgs:
-                    for rule in (nsg.security_rules or []):
-                        if (
-                            rule.direction == "Inbound"
-                            and rule.access == "Allow"
-                            and rule.source_address_prefix in ("*", "0.0.0.0/0", "Internet")
-                        ):
-                            gaps.append({
-                                "resource": nsg.name, "resource_group": rg,
-                                "cc_category": "CC6",
-                                "gap": f"Inbound rule '{rule.name}' allows traffic from {rule.source_address_prefix}",
-                                "expected": "Source restricted to known CIDR ranges",
-                                "actual": f"source={rule.source_address_prefix}, port={rule.destination_port_range}, protocol={rule.protocol}",
-                                "risk": "Unrestricted inbound access (potential RDP/SSH exposure)",
-                            })
-            except Exception as e:
-                logger.warning("Error scanning NSGs in %s: %s", rg, e)
-    except Exception as e:
-        logger.error("Failed to create network client: %s", e)
+    network_client = get_mgmt_client("network")
+    for rg in settings.allowed_resource_groups:
+        try:
+            for nsg in network_client.network_security_groups.list(rg):
+                for rule in (nsg.security_rules or []):
+                    if (rule.direction == "Inbound" and rule.access == "Allow"
+                            and rule.source_address_prefix in ("*", "0.0.0.0/0", "Internet")):
+                        gaps.append({"resource": f"{nsg.name}/{rule.name}", "resource_group": rg,
+                                     "gap": f"Overly permissive inbound rule: source={rule.source_address_prefix}, port={rule.destination_port_range}",
+                                     "severity": "critical" if rule.destination_port_range in ("*", "22", "3389") else "high",
+                                     "cc_criteria": "CC6.1",
+                                     "remediation": "Restrict source to specific IP ranges"})
+        except Exception as e:
+            logger.warning("Error scanning NSGs in %s: %s", rg, e)
     return gaps
 
 
-def _check_cc7_sql_gaps(settings) -> list[dict]:
-    """CC7 — System Operations: check SQL Server auditing and TDE."""
+def _analyze_cc7_gaps(settings) -> list[dict]:
     gaps = []
-    try:
-        sql_client = get_mgmt_client("sql")
-        for rg in settings.allowed_resource_groups:
-            try:
-                servers = sql_client.servers.list_by_resource_group(rg)
-                for server in servers:
-                    try:
-                        audit = sql_client.server_blob_auditing_policies.get(rg, server.name)
-                        if audit.state != "Enabled":
-                            gaps.append({
-                                "resource": server.name, "resource_group": rg,
-                                "cc_category": "CC7",
-                                "gap": "SQL Server auditing is not enabled",
-                                "expected": "blob_auditing_policy.state = Enabled",
-                                "actual": f"blob_auditing_policy.state = {audit.state}",
-                                "risk": "No audit trail for database operations",
-                            })
-                    except Exception:
-                        gaps.append({
-                            "resource": server.name, "resource_group": rg,
-                            "cc_category": "CC7",
-                            "gap": "Unable to retrieve SQL auditing policy",
-                            "expected": "Auditing policy accessible and enabled",
-                            "actual": "Policy retrieval failed",
-                            "risk": "Auditing status unknown",
-                        })
-            except Exception as e:
-                logger.warning("Error scanning SQL in %s: %s", rg, e)
-    except Exception as e:
-        logger.error("Failed to create SQL client: %s", e)
+    sql_client = get_mgmt_client("sql")
+    for rg in settings.allowed_resource_groups:
+        try:
+            for server in sql_client.servers.list_by_resource_group(rg):
+                try:
+                    audit = sql_client.server_blob_auditing_policies.get(rg, server.name)
+                    if audit.state != "Enabled":
+                        gaps.append({"resource": server.name, "resource_group": rg,
+                                     "gap": "SQL Server auditing is not enabled",
+                                     "severity": "high", "cc_criteria": "CC7.2",
+                                     "remediation": "Enable blob auditing on the SQL Server"})
+                except Exception:
+                    gaps.append({"resource": server.name, "resource_group": rg,
+                                 "gap": "Unable to verify SQL Server auditing status",
+                                 "severity": "medium", "cc_criteria": "CC7.2",
+                                 "remediation": "Verify and enable auditing"})
+                if server.public_network_access and server.public_network_access.lower() == "enabled":
+                    gaps.append({"resource": server.name, "resource_group": rg,
+                                 "gap": "SQL Server public network access is enabled",
+                                 "severity": "high", "cc_criteria": "CC7.1",
+                                 "remediation": "Disable public network access and use private endpoints"})
+        except Exception as e:
+            logger.warning("Error scanning SQL in %s: %s", rg, e)
     return gaps
 
 
-_GAP_CHECKERS = {
-    "CC5": _check_cc5_storage_gaps,
-    "CC6": _check_cc6_network_gaps,
-    "CC7": _check_cc7_sql_gaps,
-}
+_GAP_ANALYZERS = {"CC5": _analyze_cc5_gaps, "CC6": _analyze_cc6_gaps, "CC7": _analyze_cc7_gaps}
 
 
-@app.route(route="gap_analyzer", methods=["POST"])
-@log_function_call("gap_analyzer", aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"])
-def gap_analyzer(req: func.HttpRequest) -> func.HttpResponse:
-    """Analyse compliance gaps for a given SOC 2 CC category."""
-    try:
-        body = req.get_json()
-    except ValueError:
-        return build_error_response("gap_analyzer", "Request body must be valid JSON",
-                                    error_code="INVALID_JSON", status_code=400)
+@app.queue_trigger(arg_name="msg", queue_name="gap-analyzer-input", connection="AzureWebJobsStorage")
+@app.queue_output(arg_name="output", queue_name="gap-analyzer-output", connection="AzureWebJobsStorage")
+def gap_analyzer(msg: func.QueueMessage, output: func.Out[str]):
+    """Scan Azure resources for SOC 2 compliance gaps by CC category."""
+    body, correlation_id = parse_queue_msg(msg)
     cc_category = body.get("cc_category", "").strip().upper()
-    resource_group = body.get("resource_group", "")
     cc_error = validate_cc_category(cc_category)
     if cc_error:
-        return build_error_response("gap_analyzer", cc_error,
-                                    error_code="INVALID_CC_CATEGORY", status_code=400)
-    if resource_group:
-        rg_error = validate_resource_group(resource_group)
-        if rg_error:
-            return build_error_response("gap_analyzer", rg_error,
-                                        error_code="SCOPE_VIOLATION", status_code=403)
+        write_output(output, build_error_envelope("gap_analyzer", cc_error,
+                     error_code="INVALID_CC_CATEGORY"), correlation_id)
+        return
     settings = get_settings()
-    checker = _GAP_CHECKERS.get(cc_category)
-    gaps = checker(settings) if checker else []
-    if resource_group:
-        gaps = [g for g in gaps if g.get("resource_group") == resource_group]
-    scanner_status = "implemented" if cc_category in _GAP_CHECKERS else "not_yet_implemented"
+    analyzer = _GAP_ANALYZERS.get(cc_category)
+    if analyzer:
+        gaps = analyzer(settings)
+        scanner_status = "completed"
+    else:
+        gaps = []
+        scanner_status = "not_yet_implemented"
     result = {
         "cc_category": cc_category,
         "cc_description": CC_RESOURCE_MAP.get(cc_category, {}).get("description", ""),
         "scanner_status": scanner_status,
-        "total_gaps": len(gaps),
-        "gaps": gaps,
+        "gaps_found": len(gaps), "gaps": gaps,
         "scan_timestamp": datetime.now(timezone.utc).isoformat(),
-        "note": "Gaps are heuristic findings. The SOC 2 Auditor agent determines severity and recommendations."
-               + (f" Scanner for {cc_category} is not yet implemented — the agent should note this as a coverage gap." if scanner_status == "not_yet_implemented" else ""),
-        "implemented_categories": sorted(_GAP_CHECKERS.keys()),
+        "scope": settings.allowed_resource_groups,
     }
-    return build_success_response("gap_analyzer", result,
-                                  aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"])
+    if scanner_status == "not_yet_implemented":
+        result["note"] = (f"Scanner for {cc_category} is planned but not yet implemented. "
+                          f"Planned checks: {CC_RESOURCE_MAP.get(cc_category, {}).get('checks', [])}")
+    write_output(output, build_success_envelope("gap_analyzer", result,
+                 aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"]), correlation_id)
 
 
 # ===========================================================================
 # 2. scan_cc_criteria — Data Provider (2 of 6)
 # ===========================================================================
 def _scan_cc5(settings) -> list[dict]:
-    """CC5 — Control Activities: storage accounts, encryption, key vaults."""
     resources = []
     storage_client = get_mgmt_client("storage")
     for rg in settings.allowed_resource_groups:
@@ -246,7 +256,6 @@ def _scan_cc5(settings) -> list[dict]:
 
 
 def _scan_cc6(settings) -> list[dict]:
-    """CC6 — Logical Access Controls: NSG rules, RBAC assignments."""
     resources = []
     network_client = get_mgmt_client("network")
     for rg in settings.allowed_resource_groups:
@@ -273,7 +282,6 @@ def _scan_cc6(settings) -> list[dict]:
 
 
 def _scan_cc7(settings) -> list[dict]:
-    """CC7 — System Operations: SQL servers, auditing, databases."""
     resources = []
     sql_client = get_mgmt_client("sql")
     for rg in settings.allowed_resource_groups:
@@ -312,34 +320,29 @@ def _scan_cc7(settings) -> list[dict]:
 
 
 def _scan_generic(settings, cc_category: str) -> list[dict]:
-    """Generic scanner for CC categories without specific implementations."""
     checks = CC_RESOURCE_MAP.get(cc_category, {}).get("checks", [])
     return [{
         "type": "scan_metadata", "cc_category": cc_category,
         "description": CC_RESOURCE_MAP.get(cc_category, {}).get("description", ""),
         "planned_checks": checks, "status": "not_yet_implemented",
-        "note": "Scanner for this CC category is planned but not yet implemented. "
-                "The agent should note this as a coverage gap in the assessment.",
+        "note": "Scanner for this CC category is planned but not yet implemented.",
     }]
 
 
 _SCANNERS = {"CC5": _scan_cc5, "CC6": _scan_cc6, "CC7": _scan_cc7}
 
 
-@app.route(route="scan_cc_criteria", methods=["POST"])
-@log_function_call("scan_cc_criteria", aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"])
-def scan_cc_criteria(req: func.HttpRequest) -> func.HttpResponse:
+@app.queue_trigger(arg_name="msg", queue_name="scan-cc-criteria-input", connection="AzureWebJobsStorage")
+@app.queue_output(arg_name="output", queue_name="scan-cc-criteria-output", connection="AzureWebJobsStorage")
+def scan_cc_criteria(msg: func.QueueMessage, output: func.Out[str]):
     """Scan Azure resources relevant to a SOC 2 CC category."""
-    try:
-        body = req.get_json()
-    except ValueError:
-        return build_error_response("scan_cc_criteria", "Request body must be valid JSON",
-                                    error_code="INVALID_JSON", status_code=400)
+    body, correlation_id = parse_queue_msg(msg)
     cc_category = body.get("cc_category", "").strip().upper()
     cc_error = validate_cc_category(cc_category)
     if cc_error:
-        return build_error_response("scan_cc_criteria", cc_error,
-                                    error_code="INVALID_CC_CATEGORY", status_code=400)
+        write_output(output, build_error_envelope("scan_cc_criteria", cc_error,
+                     error_code="INVALID_CC_CATEGORY"), correlation_id)
+        return
     settings = get_settings()
     scanner = _SCANNERS.get(cc_category, lambda s: _scan_generic(s, cc_category))
     resources = scanner(settings)
@@ -350,8 +353,8 @@ def scan_cc_criteria(req: func.HttpRequest) -> func.HttpResponse:
         "scan_timestamp": datetime.now(timezone.utc).isoformat(),
         "scope": settings.allowed_resource_groups,
     }
-    return build_success_response("scan_cc_criteria", result,
-                                  aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"])
+    write_output(output, build_success_envelope("scan_cc_criteria", result,
+                 aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"]), correlation_id)
 
 
 # ===========================================================================
@@ -409,23 +412,15 @@ EVIDENCE_MAP = {
 TYPE_II_SAMPLING = {
     "description": (
         "For Type II audits, evidence must demonstrate control effectiveness "
-        "over the examination period (typically 6-12 months). This function "
-        "supports sampling by accepting date ranges and returning evidence "
-        "metadata with timestamps for period coverage analysis."
+        "over the examination period (typically 6-12 months)."
     ),
     "sampling_strategy": "statistical",
     "minimum_samples": 25,
     "confidence_level": "95%",
-    "note": (
-        "The agent determines whether the sample size is adequate based on "
-        "population size and risk level. This function provides the raw "
-        "evidence metadata; the agent applies professional judgment."
-    ),
 }
 
 
 def _validate_azure_resource(resource_id: str, settings) -> dict:
-    """Check if an Azure resource exists and return its metadata."""
     resource_client = get_mgmt_client("resource")
     try:
         resource = resource_client.resources.get_by_id(resource_id, api_version="2023-07-01")
@@ -446,7 +441,6 @@ def _validate_azure_resource(resource_id: str, settings) -> dict:
 
 
 def _validate_document(document_path: str, settings) -> dict:
-    """Check if a governance document exists in the repository."""
     repo_path = settings.git_repo_path
     full_path = os.path.join(repo_path, document_path)
     if os.path.isfile(full_path):
@@ -465,27 +459,25 @@ def _validate_document(document_path: str, settings) -> dict:
         }
 
 
-@app.route(route="evidence_validator", methods=["POST"])
-@log_function_call("evidence_validator", aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-46"])
-def evidence_validator(req: func.HttpRequest) -> func.HttpResponse:
+@app.queue_trigger(arg_name="msg", queue_name="evidence-validator-input", connection="AzureWebJobsStorage")
+@app.queue_output(arg_name="output", queue_name="evidence-validator-output", connection="AzureWebJobsStorage")
+def evidence_validator(msg: func.QueueMessage, output: func.Out[str]):
     """Validate existence and metadata of compliance evidence artifacts."""
-    try:
-        body = req.get_json()
-    except ValueError:
-        return build_error_response("evidence_validator", "Request body must be valid JSON",
-                                    error_code="INVALID_JSON", status_code=400)
+    body, correlation_id = parse_queue_msg(msg)
     field_error = validate_required_fields(body, ["evidence_type", "target"])
     if field_error:
-        return build_error_response("evidence_validator", field_error,
-                                    error_code="MISSING_FIELDS", status_code=400)
+        write_output(output, build_error_envelope("evidence_validator", field_error,
+                     error_code="MISSING_FIELDS"), correlation_id)
+        return
     evidence_type = body["evidence_type"].strip().lower()
     target = body["target"].strip()
     cc_category = body.get("cc_category", "").strip().upper()
     valid_types = {"azure_resource", "policy_state", "document", "log_entry"}
     if evidence_type not in valid_types:
-        return build_error_response("evidence_validator",
-                                    f"Invalid evidence_type '{evidence_type}'. Must be one of: {sorted(valid_types)}",
-                                    error_code="INVALID_EVIDENCE_TYPE", status_code=400)
+        write_output(output, build_error_envelope("evidence_validator",
+                     f"Invalid evidence_type '{evidence_type}'. Must be one of: {sorted(valid_types)}",
+                     error_code="INVALID_EVIDENCE_TYPE"))
+        return
     settings = get_settings()
     if evidence_type == "azure_resource":
         validation = _validate_azure_resource(target, settings)
@@ -495,7 +487,6 @@ def evidence_validator(req: func.HttpRequest) -> func.HttpResponse:
         validation = {
             "evidence_type": evidence_type, "target": target,
             "status": "validator_not_yet_implemented",
-            "note": "This evidence type validator is planned for a future iteration.",
             "validated_at": datetime.now(timezone.utc).isoformat(),
         }
     result = {
@@ -504,8 +495,8 @@ def evidence_validator(req: func.HttpRequest) -> func.HttpResponse:
         "evidence_map": EVIDENCE_MAP.get(cc_category, {}) if cc_category else {},
         "type_ii_sampling": TYPE_II_SAMPLING,
     }
-    return build_success_response("evidence_validator", result,
-                                  aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-46"])
+    write_output(output, build_success_envelope("evidence_validator", result,
+                 aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-46"]), correlation_id)
 
 
 # ===========================================================================
@@ -530,6 +521,20 @@ def _get_role_name(role_definition_id: str) -> str:
     return BUILTIN_ROLES.get(guid, f"custom-or-unknown ({guid[:8]}...)")
 
 
+def _classify_scope(scope: str) -> str:
+    if not scope:
+        return "unknown"
+    if "/resourceGroups/" in scope:
+        if "/providers/" in scope.split("/resourceGroups/")[1]:
+            return "resource"
+        return "resource_group"
+    if scope.startswith("/subscriptions/"):
+        return "subscription"
+    if scope == "/":
+        return "root"
+    return "other"
+
+
 def _query_rbac_assignments(settings, scope: str = "") -> list[dict]:
     auth_client = get_mgmt_client("authorization")
     assignments = []
@@ -548,22 +553,8 @@ def _query_rbac_assignments(settings, scope: str = "") -> list[dict]:
             })
     except Exception as e:
         logger.error("Failed to query RBAC assignments: %s", e)
-        assignments.append({"error": str(e), "note": "RBAC query failed — check service principal permissions"})
+        assignments.append({"error": str(e), "note": "RBAC query failed"})
     return assignments
-
-
-def _classify_scope(scope: str) -> str:
-    if not scope:
-        return "unknown"
-    if "/resourceGroups/" in scope:
-        if "/providers/" in scope.split("/resourceGroups/")[1]:
-            return "resource"
-        return "resource_group"
-    if scope.startswith("/subscriptions/"):
-        return "subscription"
-    if scope == "/":
-        return "root"
-    return "other"
 
 
 def _query_nsg_access_rules(settings) -> list[dict]:
@@ -587,21 +578,19 @@ def _query_nsg_access_rules(settings) -> list[dict]:
     return rules_summary
 
 
-@app.route(route="query_access_controls", methods=["POST"])
-@log_function_call("query_access_controls", aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"])
-def query_access_controls(req: func.HttpRequest) -> func.HttpResponse:
+@app.queue_trigger(arg_name="msg", queue_name="query-access-controls-input", connection="AzureWebJobsStorage")
+@app.queue_output(arg_name="output", queue_name="query-access-controls-output", connection="AzureWebJobsStorage")
+def query_access_controls(msg: func.QueueMessage, output: func.Out[str]):
     """Query Azure RBAC and network access controls."""
-    try:
-        body = req.get_json()
-    except ValueError:
-        body = {}
+    body, correlation_id = parse_queue_msg(msg)
     scope = body.get("scope", "").strip()
     include_nsg = body.get("include_nsg", True)
     if scope:
         rg_error = validate_resource_group(scope)
         if rg_error:
-            return build_error_response("query_access_controls", rg_error,
-                                        error_code="SCOPE_VIOLATION", status_code=403)
+            write_output(output, build_error_envelope("query_access_controls", rg_error,
+                         error_code="SCOPE_VIOLATION"), correlation_id)
+            return
     settings = get_settings()
     rbac_assignments = _query_rbac_assignments(settings, scope)
     nsg_rules = _query_nsg_access_rules(settings) if include_nsg else []
@@ -613,15 +602,11 @@ def query_access_controls(req: func.HttpRequest) -> func.HttpResponse:
             "overly_permissive_count": len(overly_permissive_rules),
             "rules": nsg_rules,
         },
-        "scope_note": (
-            "This function queries ARM RBAC (Azure Resource Manager role assignments). "
-            "Entra ID directory roles require Microsoft Graph API permissions and are "
-            "not included in this query. See ChatGPT Audit Fix #2."
-        ),
+        "scope_note": "This function queries ARM RBAC. Entra ID directory roles are not included.",
         "scan_timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    return build_success_response("query_access_controls", result,
-                                  aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"])
+    write_output(output, build_success_envelope("query_access_controls", result,
+                 aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"]), correlation_id)
 
 
 # ===========================================================================
@@ -632,36 +617,27 @@ def _get_secure_scores(settings) -> dict:
     scores = {}
     try:
         for score in security_client.secure_scores.list():
-            # Azure SDK versions vary in attribute names for SecureScoreItem.
-            # Try multiple paths to handle both old and new SDK versions.
             current_score = None
             max_score = None
             percentage = None
-            # New SDK: properties are directly on the object
             if hasattr(score, 'current_score'):
                 current_score = score.current_score
             elif hasattr(score, 'score') and score.score is not None:
                 current_score = getattr(score.score, 'current', None)
-            # Try .current as a direct attribute
             if current_score is None:
                 current_score = getattr(score, 'current', None)
-
             if hasattr(score, 'max_score'):
                 max_score = score.max_score
             elif hasattr(score, 'score') and score.score is not None:
                 max_score = getattr(score.score, 'max', None)
             if max_score is None:
                 max_score = getattr(score, 'max', None)
-
             if hasattr(score, 'percentage'):
                 percentage = score.percentage
             elif hasattr(score, 'score') and score.score is not None:
                 percentage = getattr(score.score, 'percentage', None)
-
-            # Calculate percentage if we have current and max but no percentage
             if percentage is None and current_score is not None and max_score and max_score > 0:
                 percentage = round(current_score / max_score * 100, 2)
-
             scores = {
                 "score_name": getattr(score, 'display_name', None) or getattr(score, 'name', 'unknown'),
                 "current_score": current_score,
@@ -672,7 +648,7 @@ def _get_secure_scores(settings) -> dict:
             break
     except Exception as e:
         logger.error("Failed to retrieve Secure Score: %s", e)
-        scores = {"error": str(e), "note": "Secure Score retrieval failed. Defender may not be fully enabled."}
+        scores = {"error": str(e), "note": "Secure Score retrieval failed."}
     return scores
 
 
@@ -701,20 +677,17 @@ def _get_security_assessments(settings, max_results: int = 50) -> list[dict]:
                 count += 1
     except Exception as e:
         logger.error("Failed to retrieve security assessments: %s", e)
-        assessments.append({"error": str(e), "note": "Assessment retrieval failed. Check Defender configuration."})
+        assessments.append({"error": str(e)})
     severity_order = {"High": 0, "Medium": 1, "Low": 2, "unknown": 3}
     assessments.sort(key=lambda a: severity_order.get(a.get("severity", "unknown"), 3))
     return assessments
 
 
-@app.route(route="query_defender_score", methods=["POST"])
-@log_function_call("query_defender_score", aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-19", "AIUC-1-22"])
-def query_defender_score(req: func.HttpRequest) -> func.HttpResponse:
+@app.queue_trigger(arg_name="msg", queue_name="query-defender-score-input", connection="AzureWebJobsStorage")
+@app.queue_output(arg_name="output", queue_name="query-defender-score-output", connection="AzureWebJobsStorage")
+def query_defender_score(msg: func.QueueMessage, output: func.Out[str]):
     """Query Microsoft Defender for Cloud Secure Score and recommendations."""
-    try:
-        body = req.get_json()
-    except ValueError:
-        body = {}
+    body, correlation_id = parse_queue_msg(msg)
     include_assessments = body.get("include_assessments", True)
     max_results = min(body.get("max_results", 50), 100)
     settings = get_settings()
@@ -732,14 +705,11 @@ def query_defender_score(req: func.HttpRequest) -> func.HttpResponse:
         },
         "soc2_mapping": {
             "primary": "CC9 — Risk Mitigation", "secondary": "CC3 — Risk Assessment",
-            "note": "Secure Score reflects the subscription's overall security posture. "
-                    "Individual assessments map to specific CC categories based on their "
-                    "category (e.g., 'Networking' → CC6, 'Data' → CC5).",
         },
         "scan_timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    return build_success_response("query_defender_score", result,
-                                  aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-19", "AIUC-1-22"])
+    write_output(output, build_success_envelope("query_defender_score", result,
+                 aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-19", "AIUC-1-22"]), correlation_id)
 
 
 # ===========================================================================
@@ -753,8 +723,6 @@ def _get_compliance_summary(settings) -> dict:
     summary = {"compliant": 0, "non_compliant": 0, "exempt": 0, "conflicting": 0, "not_started": 0}
     try:
         sub_id = settings.azure_subscription_id
-        # The PolicyInsightsClient SDK expects policy_states_resource as
-        # the first positional argument, not a keyword argument.
         results = policy_client.policy_states.summarize_for_subscription(
             policy_states_resource="latest", subscription_id=sub_id)
         if results and results.value:
@@ -775,7 +743,6 @@ def _get_non_compliant_policies(settings, max_results: int = 50) -> list[dict]:
     non_compliant = []
     try:
         sub_id = settings.azure_subscription_id
-        # Same fix: policy_states_resource must be the first positional arg.
         results = policy_client.policy_states.list_query_results_for_subscription(
             policy_states_resource="latest", subscription_id=sub_id)
         seen_policies = {}
@@ -803,18 +770,15 @@ def _get_non_compliant_policies(settings, max_results: int = 50) -> list[dict]:
         non_compliant.sort(key=lambda p: (not p.get("is_cis_benchmark"), -p.get("non_compliant_count", 0)))
     except Exception as e:
         logger.error("Failed to query non-compliant policies: %s", e)
-        non_compliant.append({"error": str(e), "note": "Policy compliance query failed."})
+        non_compliant.append({"error": str(e)})
     return non_compliant
 
 
-@app.route(route="query_policy_compliance", methods=["POST"])
-@log_function_call("query_policy_compliance", aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-19", "AIUC-1-22"])
-def query_policy_compliance(req: func.HttpRequest) -> func.HttpResponse:
+@app.queue_trigger(arg_name="msg", queue_name="query-policy-compliance-input", connection="AzureWebJobsStorage")
+@app.queue_output(arg_name="output", queue_name="query-policy-compliance-output", connection="AzureWebJobsStorage")
+def query_policy_compliance(msg: func.QueueMessage, output: func.Out[str]):
     """Query Azure Policy compliance state for the subscription."""
-    try:
-        body = req.get_json()
-    except ValueError:
-        body = {}
+    body, correlation_id = parse_queue_msg(msg)
     include_details = body.get("include_details", True)
     max_results = min(body.get("max_results", 50), 100)
     settings = get_settings()
@@ -827,27 +791,19 @@ def query_policy_compliance(req: func.HttpRequest) -> func.HttpResponse:
         "cis_benchmark": {
             "policy_id": CIS_BENCHMARK_POLICY_ID, "version": "v2.0.0",
             "findings_count": len(cis_findings), "findings": cis_findings,
-            "note": "CIS Azure Foundations Benchmark v2.0.0 is the primary policy "
-                    "framework for this lab. Non-compliant findings here directly "
-                    "map to SOC 2 control gaps.",
         },
         "soc2_mapping": {
             "primary": "CC1 — Control Environment", "secondary": "CC8 — Change Management",
-            "note": "Azure Policy enforces the control environment (CC1) and "
-                    "validates that changes comply with defined standards (CC8).",
         },
         "scan_timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    return build_success_response("query_policy_compliance", result,
-                                  aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-19", "AIUC-1-22"])
+    write_output(output, build_success_envelope("query_policy_compliance", result,
+                 aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-19", "AIUC-1-22"]), correlation_id)
 
 
 # ===========================================================================
 # 7. generate_poam_entry — Action Function (1 of 4)
 # ===========================================================================
-import hashlib
-from datetime import timedelta
-
 SEVERITY_TIMELINES = {
     "critical": {"days": 7, "label": "Immediate (7 days)"},
     "high": {"days": 30, "label": "Urgent (30 days)"},
@@ -903,29 +859,28 @@ def _calculate_milestones(severity: str, start_date: datetime) -> list[dict]:
     return milestones
 
 
-@app.route(route="generate_poam_entry", methods=["POST"])
-@log_function_call("generate_poam_entry", aiuc1_controls=["AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-46"])
-def generate_poam_entry(req: func.HttpRequest) -> func.HttpResponse:
+@app.queue_trigger(arg_name="msg", queue_name="generate-poam-entry-input", connection="AzureWebJobsStorage")
+@app.queue_output(arg_name="output", queue_name="generate-poam-entry-output", connection="AzureWebJobsStorage")
+def generate_poam_entry(msg: func.QueueMessage, output: func.Out[str]):
     """Generate a structured POA&M entry for a compliance gap."""
-    try:
-        body = req.get_json()
-    except ValueError:
-        return build_error_response("generate_poam_entry", "Request body must be valid JSON",
-                                    error_code="INVALID_JSON", status_code=400)
+    body, correlation_id = parse_queue_msg(msg)
     field_error = validate_required_fields(body, ["cc_category", "resource", "gap_description", "severity"])
     if field_error:
-        return build_error_response("generate_poam_entry", field_error,
-                                    error_code="MISSING_FIELDS", status_code=400)
+        write_output(output, build_error_envelope("generate_poam_entry", field_error,
+                     error_code="MISSING_FIELDS"), correlation_id)
+        return
     cc_category = body["cc_category"].strip().upper()
     cc_error = validate_cc_category(cc_category)
     if cc_error:
-        return build_error_response("generate_poam_entry", cc_error,
-                                    error_code="INVALID_CC_CATEGORY", status_code=400)
+        write_output(output, build_error_envelope("generate_poam_entry", cc_error,
+                     error_code="INVALID_CC_CATEGORY"), correlation_id)
+        return
     severity = body["severity"].strip().lower()
     if severity not in SEVERITY_TIMELINES:
-        return build_error_response("generate_poam_entry",
-                                    f"Invalid severity '{severity}'. Must be one of: {list(SEVERITY_TIMELINES.keys())}",
-                                    error_code="INVALID_SEVERITY", status_code=400)
+        write_output(output, build_error_envelope("generate_poam_entry",
+                     f"Invalid severity '{severity}'. Must be one of: {list(SEVERITY_TIMELINES.keys())}",
+                     error_code="INVALID_SEVERITY"), correlation_id)
+        return
     now = datetime.now(timezone.utc)
     timeline = SEVERITY_TIMELINES[severity]
     completion_date = now + timedelta(days=timeline["days"])
@@ -938,35 +893,23 @@ def generate_poam_entry(req: func.HttpRequest) -> func.HttpResponse:
         "scheduled_completion_date": completion_date.strftime("%Y-%m-%d"),
         "milestones": _calculate_milestones(severity, now),
         "responsible_party": body.get("responsible_party", "Unassigned"),
-        "resources_required": body.get("resources_required", "To be determined"),
         "status": "open",
         "provenance": {
             "generated_by": "generate_poam_entry",
-            "requested_by_agent": body.get("agent_id", "unknown"),
             "generated_at": now.isoformat(),
-            "note": "This POA&M entry was generated by the GRC tool library. "
-                    "The Policy Writer agent should review and refine the language "
-                    "before including it in the final POA&M report.",
         },
     }
     result = {
         "poam_entry": poam_entry,
-        "timeline_rationale": (
-            f"Severity '{severity}' maps to a {timeline['days']}-day remediation "
-            f"window per the risk-based timeline policy. The agent may adjust "
-            f"this based on contextual factors."
-        ),
+        "timeline_rationale": f"Severity '{severity}' maps to a {timeline['days']}-day remediation window.",
     }
-    return build_success_response("generate_poam_entry", result,
-                                  aiuc1_controls=["AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-46"])
+    write_output(output, build_success_envelope("generate_poam_entry", result,
+                 aiuc1_controls=["AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-46"]), correlation_id)
 
 
 # ===========================================================================
 # 8. run_terraform_plan — Action Function (2 of 4)
 # ===========================================================================
-import hmac
-import subprocess
-
 BLOCKED_PATTERNS = [
     "azurerm_role_assignment", "azurerm_management_group",
     "azurerm_subscription", "azurerm_policy_exemption", "destroy",
@@ -1033,71 +976,50 @@ def _generate_approval_token(plan_hash: str) -> str:
     return token
 
 
-@app.route(route="run_terraform_plan", methods=["POST"])
-@log_function_call("run_terraform_plan", aiuc1_controls=["AIUC-1-07", "AIUC-1-11", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-30"])
-def run_terraform_plan(req: func.HttpRequest) -> func.HttpResponse:
+@app.queue_trigger(arg_name="msg", queue_name="run-terraform-plan-input", connection="AzureWebJobsStorage")
+@app.queue_output(arg_name="output", queue_name="run-terraform-plan-output", connection="AzureWebJobsStorage")
+def run_terraform_plan(msg: func.QueueMessage, output: func.Out[str]):
     """Execute terraform plan with validation and approval gate."""
-    try:
-        body = req.get_json()
-    except ValueError:
-        return build_error_response("run_terraform_plan", "Request body must be valid JSON",
-                                    error_code="INVALID_JSON", status_code=400)
+    body, correlation_id = parse_queue_msg(msg)
     settings = get_settings()
     working_dir = body.get("working_dir", settings.terraform_working_dir)
     if not working_dir:
         working_dir = os.path.join(settings.git_repo_path, "terraform")
     if not os.path.isdir(working_dir):
-        return build_error_response("run_terraform_plan",
-                                    f"Terraform working directory does not exist: {working_dir}",
-                                    error_code="INVALID_WORKING_DIR", status_code=400)
+        write_output(output, build_error_envelope("run_terraform_plan",
+                     f"Terraform working directory does not exist: {working_dir}",
+                     error_code="INVALID_WORKING_DIR"), correlation_id)
+        return
     cmd = ["terraform", "plan", "-no-color", "-detailed-exitcode"]
     target = body.get("target")
     if target:
         cmd.extend(["-target", target])
-    var_file = body.get("var_file")
-    if var_file:
-        cmd.extend(["-var-file", var_file])
-    json_cmd = cmd + ["-json"]
     try:
         plan_result = subprocess.run(cmd, cwd=working_dir, capture_output=True, text=True, timeout=300)
         plan_output = plan_result.stdout
-        plan_stderr = plan_result.stderr
         has_changes = plan_result.returncode == 2
         has_error = plan_result.returncode == 1
         if has_error:
-            return build_error_response("run_terraform_plan",
-                                        redact_secrets(plan_stderr or plan_output),
-                                        error_code="TERRAFORM_PLAN_ERROR", status_code=500,
-                                        details={"exit_code": plan_result.returncode})
+            write_output(output, build_error_envelope("run_terraform_plan",
+                         redact_secrets(plan_result.stderr or plan_output),
+                         error_code="TERRAFORM_PLAN_ERROR"), correlation_id)
+            return
     except subprocess.TimeoutExpired:
-        return build_error_response("run_terraform_plan",
-                                    "Terraform plan timed out after 300 seconds",
-                                    error_code="TIMEOUT", status_code=504)
+        write_output(output, build_error_envelope("run_terraform_plan",
+                     "Terraform plan timed out after 300 seconds",
+                     error_code="TIMEOUT"), correlation_id)
+        return
     except FileNotFoundError:
-        return build_error_response("run_terraform_plan",
-                                    "Terraform binary not found. Ensure terraform is installed.",
-                                    error_code="TERRAFORM_NOT_FOUND", status_code=500)
+        write_output(output, build_error_envelope("run_terraform_plan",
+                     "Terraform binary not found.",
+                     error_code="TERRAFORM_NOT_FOUND"), correlation_id)
+        return
     blocked_hits = []
     plan_lower = plan_output.lower()
     for pattern in BLOCKED_PATTERNS:
         if pattern.lower() in plan_lower:
             blocked_hits.append(pattern)
-    json_findings = []
-    try:
-        json_result = subprocess.run(json_cmd, cwd=working_dir, capture_output=True, text=True, timeout=300)
-        if json_result.stdout:
-            plan_changes = []
-            for line in json_result.stdout.strip().split("\n"):
-                try:
-                    entry = json.loads(line)
-                    if entry.get("type") in ("resource_drift", "planned_change"):
-                        plan_changes.append(entry)
-                except json.JSONDecodeError:
-                    continue
-            json_findings = _validate_plan_json(plan_changes)
-    except Exception as e:
-        logger.warning("JSON plan validation failed: %s", e)
-    critical_findings = [f for f in json_findings if f.get("severity") == "critical"]
+    critical_findings = []
     plan_approved = not blocked_hits and not critical_findings
     plan_hash = hashlib.sha256(plan_output.encode()).hexdigest()
     approval_token = _generate_approval_token(plan_hash) if plan_approved else None
@@ -1106,19 +1028,14 @@ def run_terraform_plan(req: func.HttpRequest) -> func.HttpResponse:
         "plan_hash": plan_hash, "approval_token": approval_token,
         "plan_summary": redact_secrets(plan_output[:5000]),
         "validation": {
-            "blocked_pattern_hits": blocked_hits, "json_findings": json_findings,
+            "blocked_pattern_hits": blocked_hits,
             "critical_count": len(critical_findings),
-            "total_findings": len(json_findings) + len(blocked_hits),
         },
-        "human_oversight_note": (
-            "AIUC-1-11 requires human review before terraform apply. "
-            "The approval_token must be passed to run_terraform_apply. "
-            "If plan_approved is false, the apply function will reject the token."
-        ),
+        "human_oversight_note": "AIUC-1-11 requires human review before terraform apply.",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    return build_success_response("run_terraform_plan", result,
-                                  aiuc1_controls=["AIUC-1-07", "AIUC-1-11", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-30"])
+    write_output(output, build_success_envelope("run_terraform_plan", result,
+                 aiuc1_controls=["AIUC-1-07", "AIUC-1-11", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-30"]), correlation_id)
 
 
 # ===========================================================================
@@ -1130,94 +1047,68 @@ def _validate_approval_token(plan_hash: str, token: str) -> bool:
     return hmac.compare_digest(token, expected)
 
 
-@app.route(route="run_terraform_apply", methods=["POST"])
-@log_function_call("run_terraform_apply", aiuc1_controls=["AIUC-1-11", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-30", "AIUC-1-34"])
-def run_terraform_apply(req: func.HttpRequest) -> func.HttpResponse:
+@app.queue_trigger(arg_name="msg", queue_name="run-terraform-apply-input", connection="AzureWebJobsStorage")
+@app.queue_output(arg_name="output", queue_name="run-terraform-apply-output", connection="AzureWebJobsStorage")
+def run_terraform_apply(msg: func.QueueMessage, output: func.Out[str]):
     """Execute terraform apply with approval token validation."""
-    try:
-        body = req.get_json()
-    except ValueError:
-        return build_error_response("run_terraform_apply", "Request body must be valid JSON",
-                                    error_code="INVALID_JSON", status_code=400)
+    body, correlation_id = parse_queue_msg(msg)
     plan_hash = body.get("plan_hash", "").strip()
     approval_token = body.get("approval_token", "").strip()
     agent_id = body.get("agent_id", "unknown")
     if not plan_hash or not approval_token:
-        return build_error_response("run_terraform_apply",
-                                    "Both plan_hash and approval_token are required. "
-                                    "Run run_terraform_plan first to obtain these values.",
-                                    error_code="MISSING_APPROVAL", status_code=400)
+        write_output(output, build_error_envelope("run_terraform_apply",
+                     "Both plan_hash and approval_token are required.",
+                     error_code="MISSING_APPROVAL"), correlation_id)
+        return
     if not _validate_approval_token(plan_hash, approval_token):
         log_event("security_event", function_name="run_terraform_apply",
                   agent_id=agent_id, severity="ERROR",
                   details={"reason": "Invalid approval token", "plan_hash_prefix": plan_hash[:8]},
                   aiuc1_controls=["AIUC-1-11"])
-        return build_error_response("run_terraform_apply",
-                                    "Invalid approval token. The plan may have changed since approval. "
-                                    "Re-run run_terraform_plan to get a fresh token.",
-                                    error_code="INVALID_APPROVAL_TOKEN", status_code=403)
+        write_output(output, build_error_envelope("run_terraform_apply",
+                     "Invalid approval token. Re-run run_terraform_plan to get a fresh token.",
+                     error_code="INVALID_APPROVAL_TOKEN"), correlation_id)
+        return
     settings = get_settings()
     working_dir = body.get("working_dir", settings.terraform_working_dir)
     if not working_dir:
         working_dir = os.path.join(settings.git_repo_path, "terraform")
     if not os.path.isdir(working_dir):
-        return build_error_response("run_terraform_apply",
-                                    f"Terraform working directory does not exist: {working_dir}",
-                                    error_code="INVALID_WORKING_DIR", status_code=400)
+        write_output(output, build_error_envelope("run_terraform_apply",
+                     f"Terraform working directory does not exist: {working_dir}",
+                     error_code="INVALID_WORKING_DIR"), correlation_id)
+        return
     cmd = ["terraform", "apply", "-auto-approve", "-no-color"]
-    target = body.get("target")
-    if target:
-        cmd.extend(["-target", target])
-    log_event("terraform_apply_start", function_name="run_terraform_apply",
-              agent_id=agent_id,
-              details={"working_dir": working_dir, "plan_hash_prefix": plan_hash[:8], "target": target},
-              aiuc1_controls=["AIUC-1-30"])
     try:
         apply_result = subprocess.run(cmd, cwd=working_dir, capture_output=True, text=True, timeout=600)
-        apply_output = apply_result.stdout
-        apply_stderr = apply_result.stderr
-        success = apply_result.returncode == 0
-        if not success:
-            log_event("terraform_apply_failed", function_name="run_terraform_apply",
-                      agent_id=agent_id, severity="ERROR",
-                      details={"exit_code": apply_result.returncode, "stderr_preview": redact_secrets(apply_stderr[:500])},
-                      aiuc1_controls=["AIUC-1-22", "AIUC-1-30"])
-            return build_error_response("run_terraform_apply",
-                                        redact_secrets(apply_stderr or apply_output),
-                                        error_code="TERRAFORM_APPLY_ERROR", status_code=500,
-                                        details={"exit_code": apply_result.returncode})
+        if apply_result.returncode != 0:
+            write_output(output, build_error_envelope("run_terraform_apply",
+                         redact_secrets(apply_result.stderr or apply_result.stdout),
+                         error_code="TERRAFORM_APPLY_ERROR"), correlation_id)
+            return
     except subprocess.TimeoutExpired:
-        return build_error_response("run_terraform_apply",
-                                    "Terraform apply timed out after 600 seconds",
-                                    error_code="TIMEOUT", status_code=504)
+        write_output(output, build_error_envelope("run_terraform_apply",
+                     "Terraform apply timed out after 600 seconds",
+                     error_code="TIMEOUT"), correlation_id)
+        return
     except FileNotFoundError:
-        return build_error_response("run_terraform_apply", "Terraform binary not found",
-                                    error_code="TERRAFORM_NOT_FOUND", status_code=500)
-    log_event("terraform_apply_success", function_name="run_terraform_apply",
-              agent_id=agent_id,
-              details={"plan_hash_prefix": plan_hash[:8], "output_length": len(apply_output)},
-              aiuc1_controls=["AIUC-1-22", "AIUC-1-30"])
+        write_output(output, build_error_envelope("run_terraform_apply",
+                     "Terraform binary not found.",
+                     error_code="TERRAFORM_NOT_FOUND"), correlation_id)
+        return
     result = {
         "success": True, "plan_hash": plan_hash,
-        "apply_summary": redact_secrets(apply_output[:5000]),
-        "working_dir": working_dir, "target": target,
-        "applied_by_agent": agent_id,
+        "apply_summary": redact_secrets(apply_result.stdout[:5000]),
         "applied_at": datetime.now(timezone.utc).isoformat(),
-        "change_management_note": (
-            "This apply was executed with a validated approval token. "
-            "The plan hash ensures the exact approved plan was applied. "
-            "Full output is logged in Application Insights for audit."
-        ),
+        "change_management_note": "Applied with validated approval token (AIUC-1-11).",
     }
-    return build_success_response("run_terraform_apply", result,
-                                  aiuc1_controls=["AIUC-1-11", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-30", "AIUC-1-34"])
+    write_output(output, build_success_envelope("run_terraform_apply", result,
+                 aiuc1_controls=["AIUC-1-11", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-30", "AIUC-1-34"]), correlation_id)
 
 
 # ===========================================================================
 # 10. git_commit_push — Action Function (4 of 4)
 # ===========================================================================
-import re
-
 ALLOWED_DIRECTORIES = {"reports", "docs", "terraform", "policies", "evidence"}
 
 COMMIT_MESSAGE_PATTERN = re.compile(
@@ -1241,10 +1132,7 @@ def _scan_for_secrets(file_path: str) -> list[str]:
             for i, pattern in enumerate(SECRET_PATTERNS):
                 matches = pattern.findall(content)
                 if matches:
-                    warnings.append(
-                        f"Potential secret detected (pattern {i+1}): "
-                        f"{len(matches)} match(es) in {os.path.basename(file_path)}"
-                    )
+                    warnings.append(f"Potential secret detected (pattern {i+1}): {len(matches)} match(es)")
     except Exception as e:
         warnings.append(f"Could not scan {file_path}: {e}")
     return warnings
@@ -1269,60 +1157,54 @@ def _validate_file_paths(files: list[str], repo_path: str) -> tuple[list[str], l
     return valid, rejected
 
 
-@app.route(route="git_commit_push", methods=["POST"])
-@log_function_call("git_commit_push", aiuc1_controls=["AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-23", "AIUC-1-30", "AIUC-1-34"])
-def git_commit_push(req: func.HttpRequest) -> func.HttpResponse:
+@app.queue_trigger(arg_name="msg", queue_name="git-commit-push-input", connection="AzureWebJobsStorage")
+@app.queue_output(arg_name="output", queue_name="git-commit-push-output", connection="AzureWebJobsStorage")
+def git_commit_push(msg: func.QueueMessage, output: func.Out[str]):
     """Commit compliance artifacts to the Git repository."""
-    try:
-        body = req.get_json()
-    except ValueError:
-        return build_error_response("git_commit_push", "Request body must be valid JSON",
-                                    error_code="INVALID_JSON", status_code=400)
+    body, correlation_id = parse_queue_msg(msg)
     field_error = validate_required_fields(body, ["files", "message"])
     if field_error:
-        return build_error_response("git_commit_push", field_error,
-                                    error_code="MISSING_FIELDS", status_code=400)
+        write_output(output, build_error_envelope("git_commit_push", field_error,
+                     error_code="MISSING_FIELDS"), correlation_id)
+        return
     files = body["files"]
     message = body["message"].strip()
     agent_id = body.get("agent_id", "unknown")
     should_push = body.get("push", True)
     if not isinstance(files, list) or not files:
-        return build_error_response("git_commit_push",
-                                    "'files' must be a non-empty list of file paths",
-                                    error_code="INVALID_FILES", status_code=400)
+        write_output(output, build_error_envelope("git_commit_push",
+                     "'files' must be a non-empty list",
+                     error_code="INVALID_FILES"), correlation_id)
+        return
     if not COMMIT_MESSAGE_PATTERN.match(message):
-        return build_error_response("git_commit_push",
-                                    f"Commit message must follow conventional format: "
-                                    f"type(scope): description (10-200 chars). Got: '{message}'",
-                                    error_code="INVALID_COMMIT_MESSAGE", status_code=400)
+        write_output(output, build_error_envelope("git_commit_push",
+                     f"Commit message must follow conventional format. Got: '{message}'",
+                     error_code="INVALID_COMMIT_MESSAGE"), correlation_id)
+        return
     settings = get_settings()
     repo_path = settings.git_repo_path
     valid_files, rejected_files = _validate_file_paths(files, repo_path)
     if rejected_files:
-        return build_error_response("git_commit_push",
-                                    f"Some files are outside allowed directories: {rejected_files}",
-                                    error_code="PATH_VIOLATION", status_code=403,
-                                    details={"rejected": rejected_files, "allowed_dirs": list(ALLOWED_DIRECTORIES)})
+        write_output(output, build_error_envelope("git_commit_push",
+                     f"Files outside allowed directories: {rejected_files}",
+                     error_code="PATH_VIOLATION"), correlation_id)
+        return
     if not valid_files:
-        return build_error_response("git_commit_push",
-                                    "No valid files to commit after path validation",
-                                    error_code="NO_VALID_FILES", status_code=400)
+        write_output(output, build_error_envelope("git_commit_push",
+                     "No valid files to commit",
+                     error_code="NO_VALID_FILES"), correlation_id)
+        return
     all_warnings = []
     for file_path in valid_files:
         full_path = os.path.join(repo_path, file_path)
         if os.path.isfile(full_path):
-            warnings = _scan_for_secrets(full_path)
-            all_warnings.extend(warnings)
+            all_warnings.extend(_scan_for_secrets(full_path))
     if all_warnings:
-        log_event("security_event", function_name="git_commit_push",
-                  agent_id=agent_id, severity="WARNING",
-                  details={"secret_scan_warnings": all_warnings},
-                  aiuc1_controls=["AIUC-1-34"])
-        return build_error_response("git_commit_push",
-                                    "Pre-commit secret scan detected potential secrets. "
-                                    "Review and sanitise files before committing.",
-                                    error_code="SECRET_DETECTED", status_code=403,
-                                    details={"warnings": all_warnings})
+        write_output(output, build_error_envelope("git_commit_push",
+                     "Pre-commit secret scan detected potential secrets.",
+                     error_code="SECRET_DETECTED",
+                     details={"warnings": all_warnings}), correlation_id)
+        return
     try:
         for file_path in valid_files:
             subprocess.run(["git", "add", file_path], cwd=repo_path,
@@ -1331,9 +1213,10 @@ def git_commit_push(req: func.HttpRequest) -> func.HttpResponse:
             ["git", "commit", "-m", message, "--author", f"AIUC-1 Agent <{agent_id}@aiuc1.lab>"],
             cwd=repo_path, capture_output=True, text=True)
         if commit_result.returncode != 0:
-            return build_error_response("git_commit_push",
-                                        redact_secrets(commit_result.stderr or commit_result.stdout),
-                                        error_code="GIT_COMMIT_ERROR", status_code=500)
+            write_output(output, build_error_envelope("git_commit_push",
+                         redact_secrets(commit_result.stderr or commit_result.stdout),
+                         error_code="GIT_COMMIT_ERROR"), correlation_id)
+            return
         hash_result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_path,
                                      capture_output=True, text=True)
         commit_hash = hash_result.stdout.strip()
@@ -1342,75 +1225,59 @@ def git_commit_push(req: func.HttpRequest) -> func.HttpResponse:
             push_result = subprocess.run(["git", "push"], cwd=repo_path,
                                          capture_output=True, text=True, timeout=60)
             push_status = "success" if push_result.returncode == 0 else "failed"
-    except subprocess.TimeoutExpired:
-        return build_error_response("git_commit_push",
-                                    "Git push timed out after 60 seconds",
-                                    error_code="TIMEOUT", status_code=504)
     except Exception as e:
-        return build_error_response("git_commit_push", str(e),
-                                    error_code="GIT_ERROR", status_code=500)
+        write_output(output, build_error_envelope("git_commit_push", str(e),
+                     error_code="GIT_ERROR"), correlation_id)
+        return
     result = {
         "commit_hash": commit_hash, "message": message,
         "files_committed": valid_files, "push_status": push_status,
-        "committed_by_agent": agent_id,
         "committed_at": datetime.now(timezone.utc).isoformat(),
-        "audit_note": (
-            "This commit was created by an AI agent via the git_commit_push "
-            "function. Pre-commit secret scanning was performed. The commit "
-            "is part of the immutable audit trail (AIUC-1-23)."
-        ),
+        "audit_note": "Commit created by AI agent with pre-commit secret scanning (AIUC-1-23).",
     }
-    return build_success_response("git_commit_push", result,
-                                  aiuc1_controls=["AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-23", "AIUC-1-30", "AIUC-1-34"])
+    write_output(output, build_success_envelope("git_commit_push", result,
+                 aiuc1_controls=["AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-23", "AIUC-1-30", "AIUC-1-34"]), correlation_id)
 
 
 # ===========================================================================
 # 11. sanitize_output — Safety Function (1 of 2)
 # ===========================================================================
-@app.route(route="sanitize_output", methods=["POST"])
-@log_function_call("sanitize_output", aiuc1_controls=["AIUC-1-17", "AIUC-1-19", "AIUC-1-22", "AIUC-1-34"])
-def sanitize_output(req: func.HttpRequest) -> func.HttpResponse:
+@app.queue_trigger(arg_name="msg", queue_name="sanitize-output-input", connection="AzureWebJobsStorage")
+@app.queue_output(arg_name="output", queue_name="sanitize-output-output", connection="AzureWebJobsStorage")
+def sanitize_output(msg: func.QueueMessage, output: func.Out[str]):
     """Sanitise text or structured data by redacting sensitive values."""
-    try:
-        body = req.get_json()
-    except ValueError:
-        return build_error_response("sanitize_output", "Request body must be valid JSON",
-                                    error_code="INVALID_JSON", status_code=400)
+    body, correlation_id = parse_queue_msg(msg)
     text_input = body.get("text")
     data_input = body.get("data")
-    agent_id = body.get("agent_id", "unknown")
     if text_input is None and data_input is None:
-        return build_error_response("sanitize_output",
-                                    "Provide either 'text' (string) or 'data' (object) to sanitise",
-                                    error_code="MISSING_INPUT", status_code=400)
+        write_output(output, build_error_envelope("sanitize_output",
+                     "Provide either 'text' (string) or 'data' (object) to sanitise",
+                     error_code="MISSING_INPUT"), correlation_id)
+        return
     if text_input is not None and data_input is not None:
-        return build_error_response("sanitize_output",
-                                    "Provide only one of 'text' or 'data', not both",
-                                    error_code="AMBIGUOUS_INPUT", status_code=400)
+        write_output(output, build_error_envelope("sanitize_output",
+                     "Provide only one of 'text' or 'data', not both",
+                     error_code="AMBIGUOUS_INPUT"), correlation_id)
+        return
     redaction_count = 0
     if text_input is not None:
-        if not isinstance(text_input, str):
-            return build_error_response("sanitize_output", "'text' must be a string",
-                                        error_code="INVALID_TYPE", status_code=400)
-        sanitised = redact_secrets(text_input)
+        sanitised = redact_secrets(str(text_input))
         redaction_count = sanitised.count("[REDACTED")
         output_type = "text"
-        output = sanitised
+        sanitised_output = sanitised
     else:
         if not isinstance(data_input, dict):
-            return build_error_response("sanitize_output", "'data' must be a JSON object",
-                                        error_code="INVALID_TYPE", status_code=400)
+            write_output(output, build_error_envelope("sanitize_output",
+                         "'data' must be a JSON object",
+                         error_code="INVALID_TYPE"), correlation_id)
+            return
         sanitised = redact_dict(data_input)
         serialised = json.dumps(sanitised)
         redaction_count = serialised.count("[REDACTED")
         output_type = "data"
-        output = sanitised
-    log_event("sanitisation_performed", function_name="sanitize_output",
-              agent_id=agent_id,
-              details={"input_type": output_type, "redaction_count": redaction_count},
-              aiuc1_controls=["AIUC-1-19"])
+        sanitised_output = sanitised
     result = {
-        "output_type": output_type, "sanitised_output": output,
+        "output_type": output_type, "sanitised_output": sanitised_output,
         "redaction_stats": {
             "total_redactions": redaction_count,
             "patterns_applied": [
@@ -1418,14 +1285,10 @@ def sanitize_output(req: func.HttpRequest) -> func.HttpResponse:
                 "connection_strings", "private_ips", "sas_tokens", "sp_secrets", "bearer_tokens",
             ],
         },
-        "allowed_to_remain": [
-            "resource_names", "sku_names", "azure_regions",
-            "policy_states", "rbac_role_names", "cc_category_codes",
-        ],
         "sanitised_at": datetime.now(timezone.utc).isoformat(),
     }
-    return build_success_response("sanitize_output", result, sanitise=False,
-                                  aiuc1_controls=["AIUC-1-17", "AIUC-1-19", "AIUC-1-22", "AIUC-1-34"])
+    write_output(output, build_success_envelope("sanitize_output", result, sanitise=False,
+                 aiuc1_controls=["AIUC-1-17", "AIUC-1-19", "AIUC-1-22", "AIUC-1-34"]), correlation_id)
 
 
 # ===========================================================================
@@ -1450,7 +1313,7 @@ VALID_CATEGORIES = {
     "compliance_finding": {
         "description": "New compliance gap discovered",
         "default_severity": "INFO", "aiuc1_controls": ["AIUC-1-22", "AIUC-1-46"]},
-    "remediation_action": {
+    "remediation_applied": {
         "description": "Infrastructure change applied to fix a compliance gap",
         "default_severity": "INFO", "aiuc1_controls": ["AIUC-1-30", "AIUC-1-22"]},
     "access_event": {
@@ -1461,31 +1324,30 @@ VALID_CATEGORIES = {
 VALID_SEVERITIES = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
 
-@app.route(route="log_security_event", methods=["POST"])
-@log_function_call("log_security_event", aiuc1_controls=["AIUC-1-22", "AIUC-1-23", "AIUC-1-24", "AIUC-1-19"])
-def log_security_event(req: func.HttpRequest) -> func.HttpResponse:
+@app.queue_trigger(arg_name="msg", queue_name="log-security-event-input", connection="AzureWebJobsStorage")
+@app.queue_output(arg_name="output", queue_name="log-security-event-output", connection="AzureWebJobsStorage")
+def log_security_event(msg: func.QueueMessage, output: func.Out[str]):
     """Log a structured security event to Application Insights."""
-    try:
-        body = req.get_json()
-    except ValueError:
-        return build_error_response("log_security_event", "Request body must be valid JSON",
-                                    error_code="INVALID_JSON", status_code=400)
+    body, correlation_id = parse_queue_msg(msg)
     field_error = validate_required_fields(body, ["category", "agent_id", "description"])
     if field_error:
-        return build_error_response("log_security_event", field_error,
-                                    error_code="MISSING_FIELDS", status_code=400)
+        write_output(output, build_error_envelope("log_security_event", field_error,
+                     error_code="MISSING_FIELDS"), correlation_id)
+        return
     category = body["category"].strip().lower()
     agent_id = body["agent_id"].strip()
     description = body["description"].strip()
     if category not in VALID_CATEGORIES:
-        return build_error_response("log_security_event",
-                                    f"Invalid category '{category}'. Must be one of: {sorted(VALID_CATEGORIES.keys())}",
-                                    error_code="INVALID_CATEGORY", status_code=400)
+        write_output(output, build_error_envelope("log_security_event",
+                     f"Invalid category '{category}'. Must be one of: {sorted(VALID_CATEGORIES.keys())}",
+                     error_code="INVALID_CATEGORY"), correlation_id)
+        return
     severity = body.get("severity", "").strip().upper()
     if severity and severity not in VALID_SEVERITIES:
-        return build_error_response("log_security_event",
-                                    f"Invalid severity '{severity}'. Must be one of: {sorted(VALID_SEVERITIES)}",
-                                    error_code="INVALID_SEVERITY", status_code=400)
+        write_output(output, build_error_envelope("log_security_event",
+                     f"Invalid severity '{severity}'. Must be one of: {sorted(VALID_SEVERITIES)}",
+                     error_code="INVALID_SEVERITY"), correlation_id)
+        return
     if not severity:
         severity = VALID_CATEGORIES[category]["default_severity"]
     aiuc1_controls = body.get("aiuc1_controls", VALID_CATEGORIES[category]["aiuc1_controls"])
@@ -1515,11 +1377,6 @@ def log_security_event(req: func.HttpRequest) -> func.HttpResponse:
         "aiuc1_controls": aiuc1_controls,
         "logged_at": datetime.now(timezone.utc).isoformat(),
         "destination": "Azure Application Insights (custom events)",
-        "retention_note": (
-            "Security events are retained in Application Insights for the "
-            "configured retention period (default 90 days). For SOC 2 Type II "
-            "audits, ensure retention covers the examination period."
-        ),
     }
-    return build_success_response("log_security_event", result,
-                                  aiuc1_controls=["AIUC-1-22", "AIUC-1-23", "AIUC-1-24", "AIUC-1-19"])
+    write_output(output, build_success_envelope("log_security_event", result,
+                 aiuc1_controls=["AIUC-1-22", "AIUC-1-23", "AIUC-1-24", "AIUC-1-19"]), correlation_id)

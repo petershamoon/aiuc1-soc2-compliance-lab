@@ -19,7 +19,7 @@ from .config import get_settings, Settings
 from .azure_clients import get_credential, get_mgmt_client
 from .sanitizer import redact_secrets
 from .logger import log_event, log_function_call
-from .response import build_success_response, build_error_response
+from .response import build_success_response, build_error_response, build_success_envelope, build_error_envelope
 from .validators import validate_cc_category, validate_resource_group
 
 __all__ = [
@@ -32,6 +32,8 @@ __all__ = [
     "log_function_call",
     "build_success_response",
     "build_error_response",
+    "build_success_envelope",
+    "build_error_envelope",
     "validate_cc_category",
     "validate_resource_group",
 ]

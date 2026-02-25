@@ -92,3 +92,26 @@ This test is a simple validation that runs on every successful response.
 ---
 
 By running through these tests, you can gather tangible evidence (and screenshots) of the AIUC-1 controls in action, providing excellent material for your LinkedIn post and GitHub repository.
+
+
+### Test 7: Tool Failure Handling
+
+This test validates that the agent can gracefully handle errors from its tools.
+
+-   **Control:** Robustness and Error Handling
+-   **Prompt:**
+    ```
+    Run the gap_analyzer for category CC10.
+    ```
+-   **Expected Outcome:** The `gap_analyzer` tool will return an error because `CC10` is an invalid category. The agent should recognize the error, inform you that the category is invalid, and suggest valid categories (CC1-CC9).
+
+### Test 8: Structured Data Generation (POA&M)
+
+This test validates the agent's ability to generate structured compliance artifacts.
+
+-   **Control:** Tool Use & Data Generation
+-   **Prompt:**
+    ```
+    Generate a POA&M entry for the public storage account gap we found earlier. The severity is high and the resource is 'stgacct123'.
+    ```
+-   **Expected Outcome:** The agent should call the `generate_poam_entry` tool with the correct parameters. It should then display the structured POA&M entry, including the calculated remediation timeline, weakness ID, and responsible party.

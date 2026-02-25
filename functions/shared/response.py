@@ -1,9 +1,9 @@
 # ---------------------------------------------------------------------------
-# AIUC-1 SOC 2 Compliance Lab — Standardised HTTP Response Builder
+# AIUC-1 SOC 2 Compliance Lab — Standardised Response Builder
 # ---------------------------------------------------------------------------
-# All 12 Azure Functions return responses through these helpers to ensure
-# a consistent JSON envelope.  The envelope includes metadata that agents
-# use for provenance tracking and audit trails.
+# Supports both HTTP responses and Queue output bindings.
+# When used with Queue triggers, returns a dict (JSON-serialisable).
+# When used with HTTP triggers, returns an azure.functions.HttpResponse.
 #
 # Response envelope schema:
 #   {
@@ -28,36 +28,19 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-import azure.functions as func
-
 from .sanitizer import redact_dict
 
 
-def build_success_response(
+def build_success_envelope(
     function_name: str,
     data: dict[str, Any],
     *,
     aiuc1_controls: Optional[list[str]] = None,
-    status_code: int = 200,
     sanitise: bool = True,
-) -> func.HttpResponse:
-    """Build a standardised success response.
-
-    Args:
-        function_name: Name of the Azure Function returning the response.
-        data: The payload dictionary to include under the "data" key.
-        aiuc1_controls: AIUC-1 control IDs exercised during this call.
-        status_code: HTTP status code (default 200).
-        sanitise: Whether to run redact_dict on *data* (default True).
-            Set to False only for the sanitize_output function itself
-            to avoid double-redaction.
-
-    Returns:
-        An azure.functions.HttpResponse with JSON body.
-    """
+) -> dict:
+    """Build a standardised success envelope as a dict."""
     clean_data = redact_dict(data) if sanitise else data
-
-    envelope = {
+    return {
         "status": "success",
         "function": function_name,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -66,6 +49,46 @@ def build_success_response(
         "sanitised": sanitise,
     }
 
+
+def build_error_envelope(
+    function_name: str,
+    error_message: str,
+    *,
+    error_code: str = "INTERNAL_ERROR",
+    details: Optional[dict[str, Any]] = None,
+    aiuc1_controls: Optional[list[str]] = None,
+) -> dict:
+    """Build a standardised error envelope as a dict."""
+    from .sanitizer import redact_secrets
+    return {
+        "status": "error",
+        "function": function_name,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "error": {
+            "code": error_code,
+            "message": redact_secrets(error_message),
+            "details": redact_dict(details) if details else {},
+        },
+        "aiuc1_controls": aiuc1_controls or [],
+        "sanitised": True,
+    }
+
+
+# --- Legacy HTTP wrappers (kept for backward compatibility) ---
+
+def build_success_response(
+    function_name: str,
+    data: dict[str, Any],
+    *,
+    aiuc1_controls: Optional[list[str]] = None,
+    status_code: int = 200,
+    sanitise: bool = True,
+):
+    """Build a standardised success HTTP response."""
+    import azure.functions as func
+    envelope = build_success_envelope(function_name, data,
+                                      aiuc1_controls=aiuc1_controls,
+                                      sanitise=sanitise)
     return func.HttpResponse(
         body=json.dumps(envelope, indent=2, default=str),
         status_code=status_code,
@@ -81,38 +104,13 @@ def build_error_response(
     status_code: int = 500,
     details: Optional[dict[str, Any]] = None,
     aiuc1_controls: Optional[list[str]] = None,
-) -> func.HttpResponse:
-    """Build a standardised error response.
-
-    Error messages are also sanitised to prevent accidental secret leakage
-    in stack traces or Azure SDK error messages.
-
-    Args:
-        function_name: Name of the Azure Function returning the error.
-        error_message: Human-readable error description.
-        error_code: Machine-readable error code for programmatic handling.
-        status_code: HTTP status code (default 500).
-        details: Additional error context (will be sanitised).
-        aiuc1_controls: AIUC-1 control IDs exercised during this call.
-
-    Returns:
-        An azure.functions.HttpResponse with JSON error body.
-    """
-    from .sanitizer import redact_secrets
-
-    envelope = {
-        "status": "error",
-        "function": function_name,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "error": {
-            "code": error_code,
-            "message": redact_secrets(error_message),
-            "details": redact_dict(details) if details else {},
-        },
-        "aiuc1_controls": aiuc1_controls or [],
-        "sanitised": True,
-    }
-
+):
+    """Build a standardised error HTTP response."""
+    import azure.functions as func
+    envelope = build_error_envelope(function_name, error_message,
+                                    error_code=error_code,
+                                    details=details,
+                                    aiuc1_controls=aiuc1_controls)
     return func.HttpResponse(
         body=json.dumps(envelope, indent=2, default=str),
         status_code=status_code,
