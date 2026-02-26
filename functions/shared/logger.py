@@ -14,9 +14,9 @@
 #   • aiuc1_controls  — list of AIUC-1 controls exercised
 #
 # AIUC-1 Controls:
-#   AIUC-1-22  Logging & Monitoring — primary control
-#   AIUC-1-23  Audit Trail          — immutable App Insights records
-#   AIUC-1-24  Incident Detection   — anomalous patterns surface here
+#   E015  Logging & Monitoring — primary control
+#   E015  Audit Trail          — immutable App Insights records
+#   E015  Incident Detection   — anomalous patterns surface here
 # ---------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -97,7 +97,7 @@ def log_function_call(
 
     Usage::
 
-        @log_function_call("gap_analyzer", aiuc1_controls=["AIUC-1-22"])
+        @log_function_call("gap_analyzer", aiuc1_controls=["E015"])
         async def main(req: func.HttpRequest) -> func.HttpResponse:
             ...
 

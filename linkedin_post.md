@@ -7,8 +7,9 @@ I built a specialized agent on Azure AI Foundry and gave it a library of 12 GRC 
 Key takeaways:
 
 *   **Human-in-the-Loop is Non-Negotiable:** The most critical control (AIUC-1-C007) was enforcing human approval for any infrastructure change. The agent would generate a Terraform plan to fix a compliance gap, but it had to wait for my explicit approval before it could apply it.
-*   **Asynchronous Tooling is Powerful:** Using Azure Functions with Storage Queues created a robust and auditable trail for every tool call. Every action the agent took was an immutable, timestamped message, which is a huge win for compliance (AIUC-1-22, AIUC-1-23).
+*   **Asynchronous Tooling is Powerful:** Using Azure Functions with Storage Queues created a robust and auditable trail for every tool call. Every action the agent took was an immutable, timestamped message, which is a huge win for compliance (AIUC-1 E015 — Log model activity).
 *   **Governance is About Guardrails, Not Just Prompts:** While the system prompt was key for defining the agent's role, the real governance came from the tools and the architecture. The agent simply couldn't perform actions it wasn't given tools for, and safety checks were built into the tools themselves.
+*   **Prompt-Based Controls Have Limits:** An important lesson: system prompt instructions like "you MUST call sanitize_output" are suggestions to the LLM, not deterministic enforcement. For production systems, architectural enforcement (middleware, output gateways) would provide stronger guarantees than prompt-only governance. This project uses a mix of both — some controls are architecturally enforced (HMAC approval tokens, blocked Terraform patterns), while others rely on prompt compliance (data sanitization, role adherence).
 
 I've documented the entire journey, including the agent's system prompt, the tool definitions, and a manual testing guide on GitHub. If you're interested in the intersection of AI, governance, and cloud security, I'd love for you to check it out and share your thoughts.
 

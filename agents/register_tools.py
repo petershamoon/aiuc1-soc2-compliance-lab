@@ -1,4 +1,8 @@
 # ---------------------------------------------------------------------------
+# DEPRECATED: This file is superseded by deploy_agent.py (Foundry SDK)
+# and scripts/register_agent_tools.py (AzureFunctionTool queue approach).
+# Kept for reference only — do not use for deployment.
+# ---------------------------------------------------------------------------
 # Register GRC Tools with Azure AI Foundry Agent
 # ---------------------------------------------------------------------------
 # This script connects to your Azure AI Foundry project and registers the 12

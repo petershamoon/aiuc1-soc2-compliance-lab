@@ -9,10 +9,10 @@
 #   Functions return raw Azure state; the AI agents reason about compliance.
 #
 # AIUC-1 Controls enforced here:
-#   AIUC-1-17  Data Minimization — only return fields agents need
-#   AIUC-1-19  Output Filtering  — sanitize_output strips secrets
-#   AIUC-1-22  Logging           — every call logged to App Insights
-#   AIUC-1-34  Credential Mgmt   — no hardcoded secrets; env vars only
+#   A003  Data Minimization — only return fields agents need
+#   B009  Output Filtering  — sanitize_output strips secrets
+#   E015  Logging           — every call logged to App Insights
+#   A004  Credential Mgmt   — no hardcoded secrets; env vars only
 # ---------------------------------------------------------------------------
 
 from .config import get_settings, Settings

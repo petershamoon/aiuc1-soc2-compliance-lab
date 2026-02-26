@@ -3,8 +3,8 @@
 # ---------------------------------------------------------------------------
 # Centralised settings loaded from environment variables.  No secrets are
 # ever hardcoded — this satisfies:
-#   AIUC-1-34  Credential Management
-#   AIUC-1-35  Secrets Rotation
+#   A004  Credential Management
+#   B008  Secrets Rotation (Protect model deployment environment)
 #
 # In production the Function App's Application Settings populate these
 # env vars automatically.  Locally, developers copy .env.example → .env
@@ -65,7 +65,7 @@ class Settings:
     def allowed_resource_groups(self) -> list[str]:
         """Resource groups the functions are allowed to query/modify.
 
-        AIUC-1-09 (Scope Boundaries): agents must not access resources
+        B006 (Scope Boundaries): agents must not access resources
         outside the defined lab scope.
         """
         return [self.rg_foundry, self.rg_production, self.rg_development]

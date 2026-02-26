@@ -9,9 +9,9 @@
 #   2. Locally → Service Principal env vars (AZURE_CLIENT_ID / SECRET / TENANT)
 #
 # AIUC-1 Controls:
-#   AIUC-1-34  Credential Management — uses DefaultAzureCredential chain
-#   AIUC-1-09  Scope Boundaries     — subscription ID is explicit
-#   AIUC-1-22  Logging              — client creation is logged
+#   A004  Credential Management — uses DefaultAzureCredential chain
+#   B006  Scope Boundaries     — subscription ID is explicit
+#   E015  Logging              — client creation is logged
 # ---------------------------------------------------------------------------
 
 from __future__ import annotations

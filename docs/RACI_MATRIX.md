@@ -4,26 +4,23 @@ This document defines the roles and responsibilities for the key activities in t
 
 ## Roles
 
-- **Pete**: The project owner and sole human user.
-- **SOC 2 Auditor**: The AI agent responsible for assessing evidence against SOC 2 criteria.
-- **Evidence Collector**: The AI agent responsible for gathering evidence from Azure.
-- **Policy Writer**: The AI agent responsible for generating governance documents.
-- **IaC Deployer**: The AI agent responsible for deploying Azure infrastructure via Terraform.
+- **Pete**: The project owner, sole human user, and accountable party for all decisions.
+- **SOC 2 Learning Agent**: The single AI agent responsible for all GRC activities — assessing evidence, gathering data, generating documents, and planning remediations.
 
 ## Matrix
 
-| Activity | Pete | SOC 2 Auditor | Evidence Collector | Policy Writer | IaC Deployer |
-|---|---|---|---|---|---|
-| **Define SOC 2 Scope** | **A** | R | I | I | I |
-| **Define AIUC-1 Controls** | **A** | R | I | I | I |
-| **Collect Azure Evidence** | I | R | **A** | I | I |
-| **Assess Evidence for Compliance** | I | **A** | C | I | I |
-| **Generate Governance Documents** | I | I | I | **A** | I |
-| **Deploy Infrastructure (Plan)** | I | I | I | I | **R** |
-| **Deploy Infrastructure (Apply)** | **A** | I | I | I | **R** |
-| **Monitor for Misconfigurations** | I | C | **A** | I | I |
-| **Remediate Misconfigurations** | **A** | I | I | I | **R** |
-| **Review Agent Performance** | **A** | C | C | C | C |
+| Activity | Pete | SOC 2 Learning Agent |
+|---|---|---|
+| **Define SOC 2 Scope** | **A** | C |
+| **Define AIUC-1 Controls** | **A** | C |
+| **Collect Azure Evidence** | I | **R** |
+| **Assess Evidence for Compliance** | **A** | **R** |
+| **Generate Governance Documents** | **A** | **R** |
+| **Deploy Infrastructure (Plan)** | I | **R** |
+| **Deploy Infrastructure (Apply)** | **A** | **R** |
+| **Monitor for Misconfigurations** | **A** | **R** |
+| **Remediate Misconfigurations** | **A** | **R** |
+| **Review Agent Performance** | **A** | C |
 
 ### RACI Key
 

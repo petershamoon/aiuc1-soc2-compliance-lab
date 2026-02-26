@@ -218,7 +218,7 @@
                   }
                 },
                 "required": [
-                  "weakling_description",
+                  "weakness_description",
                   "affected_resource",
                   "recommendation"
                 ]

@@ -17,9 +17,9 @@
 #   }
 #
 # AIUC-1 Controls:
-#   AIUC-1-19  Output Filtering  — every response is sanitised
-#   AIUC-1-22  Logging           — response metadata supports audit
-#   AIUC-1-46  Provenance        — timestamp + function name for tracing
+#   B009  Output Filtering  — every response is sanitised
+#   E015  Logging           — response metadata supports audit
+#   E017  Provenance        — timestamp + function name for tracing
 # ---------------------------------------------------------------------------
 
 from __future__ import annotations

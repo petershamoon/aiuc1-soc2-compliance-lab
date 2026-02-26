@@ -10,9 +10,9 @@
 #   Agent → reads from {function}-output queue
 #
 # This pattern provides:
-#   - AIUC-1-22: Immutable message trail in queue storage
-#   - AIUC-1-11: Async pattern supports human-in-the-loop
-#   - AIUC-1-23: Every tool call is a timestamped queue message
+#   - E015: Immutable message trail in queue storage
+#   - C007: Async pattern supports human-in-the-loop
+#   - E015: Every tool call is a timestamped queue message
 #   - No API keys in agent config (auth via Azure managed identity)
 # ===========================================================================
 
@@ -226,7 +226,7 @@ def gap_analyzer(msg: func.QueueMessage, output: func.Out[str]):
         result["note"] = (f"Scanner for {cc_category} is planned but not yet implemented. "
                           f"Planned checks: {CC_RESOURCE_MAP.get(cc_category, {}).get('checks', [])}")
     write_output(output, build_success_envelope("gap_analyzer", result,
-                 aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"]), correlation_id)
+                 aiuc1_controls=["B006", "A003", "C002", "B009", "E015"]), correlation_id)
 
 
 # ===========================================================================
@@ -354,7 +354,7 @@ def scan_cc_criteria(msg: func.QueueMessage, output: func.Out[str]):
         "scope": settings.allowed_resource_groups,
     }
     write_output(output, build_success_envelope("scan_cc_criteria", result,
-                 aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"]), correlation_id)
+                 aiuc1_controls=["B006", "A003", "C002", "B009", "E015"]), correlation_id)
 
 
 # ===========================================================================
@@ -496,7 +496,7 @@ def evidence_validator(msg: func.QueueMessage, output: func.Out[str]):
         "type_ii_sampling": TYPE_II_SAMPLING,
     }
     write_output(output, build_success_envelope("evidence_validator", result,
-                 aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-46"]), correlation_id)
+                 aiuc1_controls=["B006", "A003", "C002", "B009", "E015", "E017"]), correlation_id)
 
 
 # ===========================================================================
@@ -606,7 +606,7 @@ def query_access_controls(msg: func.QueueMessage, output: func.Out[str]):
         "scan_timestamp": datetime.now(timezone.utc).isoformat(),
     }
     write_output(output, build_success_envelope("query_access_controls", result,
-                 aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22"]), correlation_id)
+                 aiuc1_controls=["B006", "A003", "C002", "B009", "E015"]), correlation_id)
 
 
 # ===========================================================================
@@ -709,7 +709,7 @@ def query_defender_score(msg: func.QueueMessage, output: func.Out[str]):
         "scan_timestamp": datetime.now(timezone.utc).isoformat(),
     }
     write_output(output, build_success_envelope("query_defender_score", result,
-                 aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-19", "AIUC-1-22"]), correlation_id)
+                 aiuc1_controls=["B006", "A003", "B009", "E015"]), correlation_id)
 
 
 # ===========================================================================
@@ -798,7 +798,7 @@ def query_policy_compliance(msg: func.QueueMessage, output: func.Out[str]):
         "scan_timestamp": datetime.now(timezone.utc).isoformat(),
     }
     write_output(output, build_success_envelope("query_policy_compliance", result,
-                 aiuc1_controls=["AIUC-1-09", "AIUC-1-17", "AIUC-1-19", "AIUC-1-22"]), correlation_id)
+                 aiuc1_controls=["B006", "A003", "B009", "E015"]), correlation_id)
 
 
 # ===========================================================================
@@ -904,7 +904,7 @@ def generate_poam_entry(msg: func.QueueMessage, output: func.Out[str]):
         "timeline_rationale": f"Severity '{severity}' maps to a {timeline['days']}-day remediation window.",
     }
     write_output(output, build_success_envelope("generate_poam_entry", result,
-                 aiuc1_controls=["AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-46"]), correlation_id)
+                 aiuc1_controls=["C002", "B009", "E015", "E017"]), correlation_id)
 
 
 # ===========================================================================
@@ -1031,11 +1031,11 @@ def run_terraform_plan(msg: func.QueueMessage, output: func.Out[str]):
             "blocked_pattern_hits": blocked_hits,
             "critical_count": len(critical_findings),
         },
-        "human_oversight_note": "AIUC-1-11 requires human review before terraform apply.",
+        "human_oversight_note": "C007 requires human review before terraform apply.",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     write_output(output, build_success_envelope("run_terraform_plan", result,
-                 aiuc1_controls=["AIUC-1-07", "AIUC-1-11", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-30"]), correlation_id)
+                 aiuc1_controls=["C001", "C007", "C002", "B009", "E015", "E004"]), correlation_id)
 
 
 # ===========================================================================
@@ -1064,7 +1064,7 @@ def run_terraform_apply(msg: func.QueueMessage, output: func.Out[str]):
         log_event("security_event", function_name="run_terraform_apply",
                   agent_id=agent_id, severity="ERROR",
                   details={"reason": "Invalid approval token", "plan_hash_prefix": plan_hash[:8]},
-                  aiuc1_controls=["AIUC-1-11"])
+                  aiuc1_controls=["C007"])
         write_output(output, build_error_envelope("run_terraform_apply",
                      "Invalid approval token. Re-run run_terraform_plan to get a fresh token.",
                      error_code="INVALID_APPROVAL_TOKEN"), correlation_id)
@@ -1100,10 +1100,10 @@ def run_terraform_apply(msg: func.QueueMessage, output: func.Out[str]):
         "success": True, "plan_hash": plan_hash,
         "apply_summary": redact_secrets(apply_result.stdout[:5000]),
         "applied_at": datetime.now(timezone.utc).isoformat(),
-        "change_management_note": "Applied with validated approval token (AIUC-1-11).",
+        "change_management_note": "Applied with validated approval token (C007).",
     }
     write_output(output, build_success_envelope("run_terraform_apply", result,
-                 aiuc1_controls=["AIUC-1-11", "AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-30", "AIUC-1-34"]), correlation_id)
+                 aiuc1_controls=["C007", "C002", "B009", "E015", "E004", "A004"]), correlation_id)
 
 
 # ===========================================================================
@@ -1233,10 +1233,10 @@ def git_commit_push(msg: func.QueueMessage, output: func.Out[str]):
         "commit_hash": commit_hash, "message": message,
         "files_committed": valid_files, "push_status": push_status,
         "committed_at": datetime.now(timezone.utc).isoformat(),
-        "audit_note": "Commit created by AI agent with pre-commit secret scanning (AIUC-1-23).",
+        "audit_note": "Commit created by AI agent with pre-commit secret scanning (E015).",
     }
     write_output(output, build_success_envelope("git_commit_push", result,
-                 aiuc1_controls=["AIUC-1-18", "AIUC-1-19", "AIUC-1-22", "AIUC-1-23", "AIUC-1-30", "AIUC-1-34"]), correlation_id)
+                 aiuc1_controls=["C002", "B009", "E015", "E004", "A004"]), correlation_id)
 
 
 # ===========================================================================
@@ -1288,7 +1288,7 @@ def sanitize_output(msg: func.QueueMessage, output: func.Out[str]):
         "sanitised_at": datetime.now(timezone.utc).isoformat(),
     }
     write_output(output, build_success_envelope("sanitize_output", result, sanitise=False,
-                 aiuc1_controls=["AIUC-1-17", "AIUC-1-19", "AIUC-1-22", "AIUC-1-34"]), correlation_id)
+                 aiuc1_controls=["A003", "B009", "E015", "A004"]), correlation_id)
 
 
 # ===========================================================================
@@ -1297,28 +1297,28 @@ def sanitize_output(msg: func.QueueMessage, output: func.Out[str]):
 VALID_CATEGORIES = {
     "scope_violation": {
         "description": "Agent tried to access out-of-scope resources",
-        "default_severity": "ERROR", "aiuc1_controls": ["AIUC-1-09", "AIUC-1-22"]},
+        "default_severity": "ERROR", "aiuc1_controls": ["B006", "E015"]},
     "secret_exposure": {
         "description": "Potential credential leak detected",
-        "default_severity": "CRITICAL", "aiuc1_controls": ["AIUC-1-34", "AIUC-1-22"]},
+        "default_severity": "CRITICAL", "aiuc1_controls": ["A004", "E015"]},
     "validation_failure": {
         "description": "Input validation rejected a request",
-        "default_severity": "WARNING", "aiuc1_controls": ["AIUC-1-18", "AIUC-1-22"]},
+        "default_severity": "WARNING", "aiuc1_controls": ["C002", "E015"]},
     "approval_denied": {
         "description": "Terraform apply rejected (invalid token)",
-        "default_severity": "ERROR", "aiuc1_controls": ["AIUC-1-11", "AIUC-1-22"]},
+        "default_severity": "ERROR", "aiuc1_controls": ["C007", "E015"]},
     "anomalous_behavior": {
         "description": "Agent behavior outside expected patterns",
-        "default_severity": "WARNING", "aiuc1_controls": ["AIUC-1-24", "AIUC-1-22"]},
+        "default_severity": "WARNING", "aiuc1_controls": ["E015"]},
     "compliance_finding": {
         "description": "New compliance gap discovered",
-        "default_severity": "INFO", "aiuc1_controls": ["AIUC-1-22", "AIUC-1-46"]},
+        "default_severity": "INFO", "aiuc1_controls": ["E015", "E017"]},
     "remediation_applied": {
         "description": "Infrastructure change applied to fix a compliance gap",
-        "default_severity": "INFO", "aiuc1_controls": ["AIUC-1-30", "AIUC-1-22"]},
+        "default_severity": "INFO", "aiuc1_controls": ["E004", "E015"]},
     "access_event": {
         "description": "RBAC or access control change detected",
-        "default_severity": "WARNING", "aiuc1_controls": ["AIUC-1-09", "AIUC-1-22"]},
+        "default_severity": "WARNING", "aiuc1_controls": ["B006", "E015"]},
 }
 
 VALID_SEVERITIES = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
@@ -1379,4 +1379,4 @@ def log_security_event(msg: func.QueueMessage, output: func.Out[str]):
         "destination": "Azure Application Insights (custom events)",
     }
     write_output(output, build_success_envelope("log_security_event", result,
-                 aiuc1_controls=["AIUC-1-22", "AIUC-1-23", "AIUC-1-24", "AIUC-1-19"]), correlation_id)
+                 aiuc1_controls=["E015", "B009"]), correlation_id)

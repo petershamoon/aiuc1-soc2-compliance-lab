@@ -208,7 +208,7 @@ TOOL_DEFINITIONS = [
         "description": (
             "Execute terraform plan with validation and approval gate. "
             "Checks for blocked resource types and generates an approval token "
-            "if the plan passes validation. AIUC-1-11 requires human review."
+            "if the plan passes validation. C007 requires human review."
         ),
         "parameters": {
             "type": "object",
@@ -231,7 +231,7 @@ TOOL_DEFINITIONS = [
         "description": (
             "Execute terraform apply with approval token validation. "
             "Requires a valid plan_hash and approval_token from run_terraform_plan. "
-            "AIUC-1-11 enforces human-in-the-loop approval."
+            "C007 enforces human-in-the-loop approval."
         ),
         "parameters": {
             "type": "object",
@@ -408,11 +408,11 @@ def main():
             "run_terraform_apply, git_commit_push\n"
             "- SAFETY FUNCTIONS (2): sanitize_output, log_security_event\n\n"
             "IMPORTANT RULES:\n"
-            "1. Always sanitize outputs before presenting sensitive data (AIUC-1-17)\n"
-            "2. Never run terraform apply without a valid approval token from terraform plan (AIUC-1-11)\n"
-            "3. Log security events for any scope violations or anomalous behavior (AIUC-1-22)\n"
-            "4. Use conventional commit messages when committing to git (AIUC-1-23)\n"
-            "5. Stay within allowed resource groups — do not access out-of-scope resources (AIUC-1-09)\n"
+            "1. Always sanitize outputs before presenting sensitive data (A003)\n"
+            "2. Never run terraform apply without a valid approval token from terraform plan (C007)\n"
+            "3. Log security events for any scope violations or anomalous behavior (E015)\n"
+            "4. Use conventional commit messages when committing to git (E015)\n"
+            "5. Stay within allowed resource groups — do not access out-of-scope resources (B006)\n"
         ),
         tools=combined_definitions,
     )

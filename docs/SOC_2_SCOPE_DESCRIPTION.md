@@ -22,11 +22,11 @@ The system boundary for this assessment includes the following components:
 
 | Component | Description |
 |---|---|
-| **Azure AI Foundry Agent Service** | The platform for orchestrating the four autonomous GRC agents. |
+| **Azure AI Foundry Agent Service** | The platform for orchestrating the SOC 2 Learning Agent. |
 | **Azure Functions** | The serverless compute service used to provide raw Azure state data to the agents. |
 | **Target Azure Infrastructure** | The intentionally misconfigured Azure resources that serve as the assessment targets. |
 | **GitHub Repository** | The repository for storing all project code, documentation, and results. |
 
 ## Assessment Scope
 
-The scope of the assessment is to evaluate the design and operating effectiveness of the 51 AIUC-1 controls. These controls govern the autonomous agents' assessment of the intentionally misconfigured Azure resources against the SOC 2 Trust Services Criteria. The project utilizes a "tools provide data, agents provide judgment" model, where Azure Functions provide the raw data and the AI agents provide the compliance judgment.
+The scope of the assessment is to evaluate the design and operating effectiveness of a subset of the AIUC-1 controls, implemented through a single SOC 2 Learning Agent. The agent assesses intentionally misconfigured Azure resources against the SOC 2 Trust Services Criteria using a "tools provide data, agents provide judgment" model, where 12 Azure Functions provide the raw data and the AI agent provides the compliance judgment. Known gaps against the full AIUC-1 standard are documented in the project README.

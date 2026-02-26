@@ -2,46 +2,50 @@
 
 > **"Tools provide data, agents provide judgment."**
 
-This directory contains the 12 Azure Functions that form the GRC (Governance, Risk & Compliance) tool library for the AIUC-1 SOC 2 Compliance Lab. The AI agents call these functions to gather Azure infrastructure state, execute remediation actions, and maintain audit trails.
+This directory contains the 12 Azure Functions that form the GRC (Governance, Risk & Compliance) tool library for the AIUC-1 SOC 2 Compliance Lab. The SOC 2 Learning Agent calls these functions to gather Azure infrastructure state, execute remediation actions, and maintain audit trails.
+
+> **Note:** All 12 functions are defined in the single `function_app.py` file using queue triggers
+> for integration with Azure AI Foundry Agent Service. There are no per-function subdirectories —
+> the queue-based architecture replaces the need for individual HTTP-triggered function apps.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                  Azure AI Foundry Agents                 │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
-│  │SOC 2     │ │Evidence  │ │Policy    │ │IaC       │  │
-│  │Auditor   │ │Collector │ │Writer    │ │Deployer  │  │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘  │
-│       │             │            │             │        │
-│  ─────┼─────────────┼────────────┼─────────────┼────── │
-│       ▼             ▼            ▼             ▼        │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │          Azure Functions (this directory)         │  │
-│  │                                                    │  │
-│  │  Data Providers    Actions       Safety           │  │
-│  │  ┌─────────────┐  ┌──────────┐  ┌─────────────┐  │  │
-│  │  │gap_analyzer │  │poam_entry│  │sanitize_out │  │  │
-│  │  │scan_cc      │  │tf_plan   │  │log_security │  │  │
-│  │  │evidence_val │  │tf_apply  │  └─────────────┘  │  │
-│  │  │access_ctrl  │  │git_push  │                    │  │
-│  │  │defender_scr │  └──────────┘                    │  │
-│  │  │policy_comp  │                                  │  │
-│  │  └─────────────┘                                  │  │
-│  └──────────────────────────────────────────────────┘  │
-│       │                                                 │
-│  ─────┼────────────────────────────────────────────── │
-│       ▼                                                 │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │              Azure Management APIs                │  │
-│  │  Storage │ Network │ SQL │ Security │ Policy      │  │
-│  └──────────────────────────────────────────────────┘  │
+│                  Azure AI Foundry Agent Service           │
+│               ┌──────────────────────┐                   │
+│               │  SOC 2 Learning      │                   │
+│               │  Agent (gpt-4.1-mini)│                   │
+│               └──────────┬───────────┘                   │
+│                          │                               │
+│  ────────────────────────┼────────────────────────────── │
+│                          ▼                               │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │          Azure Functions (this directory)         │   │
+│  │                                                    │   │
+│  │  Data Providers    Actions       Safety           │   │
+│  │  ┌─────────────┐  ┌──────────┐  ┌─────────────┐  │   │
+│  │  │gap_analyzer │  │poam_entry│  │sanitize_out │  │   │
+│  │  │scan_cc      │  │tf_plan   │  │log_security │  │   │
+│  │  │evidence_val │  │tf_apply  │  └─────────────┘  │   │
+│  │  │access_ctrl  │  │git_push  │                    │   │
+│  │  │defender_scr │  └──────────┘                    │   │
+│  │  │policy_comp  │                                  │   │
+│  │  └─────────────┘                                  │   │
+│  └──────────────────────────────────────────────────┘   │
+│       │                                                   │
+│  ─────┼────────────────────────────────────────────────  │
+│       ▼                                                   │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │              Azure Management APIs                │   │
+│  │  Storage │ Network │ SQL │ Security │ Policy      │   │
+│  └──────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ## Functions
 
-### Data Providers (agents call these, return raw data)
+### Data Providers (agent calls these, returns raw data)
 
 | Function | CC Mapping | Description |
 |----------|-----------|-------------|
@@ -61,12 +65,12 @@ This directory contains the 12 Azure Functions that form the GRC (Governance, Ri
 | `run_terraform_apply` | Execute approved plan | HMAC approval token required |
 | `git_commit_push` | Commit artifacts to repo | Pre-commit secret scanning |
 
-### Safety Functions (all agents use)
+### Safety Functions
 
 | Function | Purpose | AIUC-1 Controls |
 |----------|---------|-----------------|
-| `sanitize_output` | Strip secrets from text/data | AIUC-1-19, AIUC-1-34 |
-| `log_security_event` | Structured App Insights logging | AIUC-1-22, AIUC-1-23 |
+| `sanitize_output` | Strip secrets from text/data | B009, A006 |
+| `log_security_event` | Structured App Insights logging | E015 |
 
 ## Local Development
 
@@ -91,23 +95,25 @@ func start
 
 Every function enforces multiple AIUC-1 controls. The most critical:
 
-- **AIUC-1-09** Scope Boundaries — functions only query allowed resource groups
-- **AIUC-1-11** Human Oversight — terraform apply requires approval token
-- **AIUC-1-17** Data Minimization — only compliance-relevant fields returned
-- **AIUC-1-18** Input Validation — all inputs validated before processing
-- **AIUC-1-19** Output Filtering — all outputs sanitised via `shared/sanitizer.py`
-- **AIUC-1-22** Logging — every call logged to Application Insights
-- **AIUC-1-34** Credential Management — no hardcoded secrets; env vars only
+| Real AIUC-1 ID | Control Name | How Enforced |
+|---|---|---|
+| **B006** | Prevent unauthorized AI agent actions | Functions only query allowed resource groups via `validate_resource_group()` |
+| **C007** | Flag high-risk outputs | `run_terraform_apply` requires HMAC approval token from `run_terraform_plan` |
+| **A003** | Limit AI agent data collection | Only compliance-relevant fields returned from Azure API queries |
+| **C002** | Conduct pre-deployment testing | All inputs validated before processing |
+| **B009** | Limit output over-exposure | All outputs sanitised via `shared/sanitizer.py` |
+| **E015** | Log model activity | Every function call logged to Application Insights with structured metadata |
+| **A004** | Protect IP & trade secrets | No hardcoded secrets; env vars only; `sanitizer.py` redacts credentials |
+| **E004** | Assign accountability | Terraform apply creates auditable change records |
+| **E017** | Document system transparency policy | Response envelopes include provenance metadata |
 
 ## Shared Modules
 
-The `shared/` directory contains utility modules used by all functions:
-
-| Module | Purpose |
-|--------|---------|
-| `config.py` | Centralised settings from environment variables |
-| `azure_clients.py` | Azure SDK client factory with caching |
-| `sanitizer.py` | Secret redaction (Audit Fix #4) |
-| `logger.py` | Structured logging to App Insights |
-| `response.py` | Standardised HTTP response builder |
-| `validators.py` | Input validation and CC category mapping |
+| Module | Purpose | AIUC-1 Controls |
+|--------|---------|-----------------|
+| `config.py` | Centralised settings from environment variables | A004 |
+| `azure_clients.py` | Azure SDK client factory with caching | A004, B006 |
+| `sanitizer.py` | Secret redaction | B009, A006 |
+| `logger.py` | Structured logging to App Insights | E015 |
+| `response.py` | Standardised HTTP/queue response builder | B009, E015 |
+| `validators.py` | Input validation and CC category mapping | B006, C002 |

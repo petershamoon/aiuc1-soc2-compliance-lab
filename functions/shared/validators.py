@@ -6,9 +6,9 @@
 # prompt might try to query resources outside the lab scope.
 #
 # AIUC-1 Controls:
-#   AIUC-1-09  Scope Boundaries    — restrict to known resource groups
-#   AIUC-1-18  Input Validation    — reject malformed inputs early
-#   AIUC-1-11  Human Oversight     — invalid inputs are logged for review
+#   B006  Scope Boundaries    — restrict to known resource groups
+#   C002  Input Validation    — reject malformed inputs early
+#   C007  Human Oversight     — invalid inputs are logged for review
 # ---------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -116,7 +116,7 @@ def validate_resource_group(resource_group: str) -> Optional[str]:
         return (
             f"Resource group '{resource_group}' is outside lab scope. "
             f"Allowed: {allowed}. "
-            f"AIUC-1-09 (Scope Boundaries) violation."
+            f"B006 (Scope Boundaries) violation."
         )
     return None
 

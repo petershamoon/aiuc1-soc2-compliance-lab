@@ -17,9 +17,9 @@
 # Allowed to remain: resource names, SKUs, regions, policy states, role names.
 #
 # AIUC-1 Controls:
-#   AIUC-1-19  Output Filtering — primary control
-#   AIUC-1-17  Data Minimization — strip what agents don't need
-#   AIUC-1-34  Credential Management — never surface creds
+#   B009  Output Filtering — primary control
+#   A003  Data Minimization — strip what agents don't need
+#   A004  Credential Management — never surface creds
 # ---------------------------------------------------------------------------
 
 from __future__ import annotations
