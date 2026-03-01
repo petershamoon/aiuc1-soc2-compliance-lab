@@ -1,0 +1,46 @@
+
+==========================================
+AIUC-1 Deployment Validation
+==========================================
+Subscription: <REDACTED-SUBSCRIPTION-ID>
+Resource Group: rg-aiuc1-foundry
+
+--- Azure CLI ---
+  [0;32m✓ PASS[0m  Azure CLI installed ()
+  [0;32m✓ PASS[0m  Correct subscription active
+
+--- Resource Groups ---
+  [0;32m✓ PASS[0m  Resource group exists: rg-aiuc1-foundry
+  [0;32m✓ PASS[0m  Resource group exists: rg-production
+  [0;32m✓ PASS[0m  Resource group exists: rg-development
+
+--- Function App ---
+  [0;32m✓ PASS[0m  Function App running: aiuc1-soc2-tools
+  [0;32m✓ PASS[0m  Python 3.11 configured
+  [0;32m✓ PASS[0m  Managed Identity enabled: db4de0c0...
+
+--- Storage Queues ---
+  [0;32m✓ PASS[0m  Storage queues: 24 (expected ≥24)
+  [0;32m✓ PASS[0m  Queue exists: gap-analyzer-input
+  [0;32m✓ PASS[0m  Queue exists: gap-analyzer-output
+  [0;32m✓ PASS[0m  Queue exists: log-security-event-input
+  [0;32m✓ PASS[0m  Queue exists: log-security-event-output
+
+--- Misconfiguration Targets ---
+  [0;32m✓ PASS[0m  NSG exists: prod-open-nsg (rg-production)
+  [0;32m✓ PASS[0m  NSG exists: dev-open-nsg (rg-development)
+  [0;32m✓ PASS[0m  Storage aiuc1prodstorage has public access (intentional misconfig for CC5)
+  [0;32m✓ PASS[0m  SQL Server exists: grclab-sql-02 (rg-production)
+
+--- RBAC Assignments ---
+  [0;32m✓ PASS[0m  Function App MI has Reader role
+  [0;32m✓ PASS[0m  Function App MI has Storage Queue Data Contributor
+
+==========================================
+Validation Summary
+==========================================
+  [0;32mPASS: 19[0m
+  [0;31mFAIL: 0[0m
+  [1;33mWARN: 0[0m
+
+[0;32mAll critical checks passed. Ready for live testing![0m

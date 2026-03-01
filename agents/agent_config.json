@@ -1,0 +1,31 @@
+{
+  "deployment_info": {
+    "endpoint": "https://<your-hub-name>.cognitiveservices.azure.com/",
+    "functions_base_url": "https://aiuc1-soc2-tools.azurewebsites.net/api",
+    "api_version": "2024-07-01-preview",
+    "model_deployments": {
+      "gpt-4.1-nano": "gpt-41-nano"
+    }
+  },
+  "agents": {
+    "soc2-learning-agent": {
+      "model": "gpt-41-nano",
+      "display_name": "SOC 2 Learning Agent",
+      "tools_count": 12,
+      "tool_names": [
+        "gap_analyzer",
+        "scan_cc_criteria",
+        "evidence_validator",
+        "query_defender_score",
+        "query_policy_compliance",
+        "query_access_controls",
+        "generate_poam_entry",
+        "run_terraform_plan",
+        "run_terraform_apply",
+        "git_commit_push",
+        "sanitize_output",
+        "log_security_event"
+      ]
+    }
+  }
+}

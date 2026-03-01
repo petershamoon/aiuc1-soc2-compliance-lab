@@ -1,0 +1,9 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# NEVER commit terraform.tfvars to source control.
+
+subscription_id      = "your-azure-subscription-id"
+rg_production        = "rg-production"
+rg_development       = "rg-development"
+nsg_names            = ["prod-open-nsg", "dev-open-nsg"]
+allowed_source_cidr  = "10.0.0.0/8"
+storage_account_name = "aiuc1prodstorage"

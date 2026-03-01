@@ -1,0 +1,77 @@
+======================================================================
+  AIUC-1 Agent Conversation Test
+  Agent ID: asst_QvYudqOUHgi1JgGGQNo1LSyy
+  Endpoint: https://<REDACTED-FOUNDRY-ENDPOINT>.services.ai.azure.com/api/projects/<REDACTED-PROJECT>
+  Time:     2026-03-01T16:37:27.509900
+======================================================================
+  Agent verified: aiuc1-soc2-compliance-agent (12 tools)
+
+──────────────────────────────────────────────────────────────────────
+  Turn 1/7: CC6 Gap Analysis
+  Prompt: Perform a gap analysis for CC6 (Logical and Physical Access Controls). What gaps...
+──────────────────────────────────────────────────────────────────────
+    Status: RunStatus.COMPLETED (15.1s)
+    Tools called: ['azure_function']
+    Response preview: The gap analysis for CC6 (Logical and Physical Access Controls) in your Azure environment has found 2 critical gaps:  1. Resource: prod-open-nsg/AllowRDPFromAnywhere in resource group rg-production   ...
+
+──────────────────────────────────────────────────────────────────────
+  Turn 2/7: CC6 Resource Scan
+  Prompt: Scan our Azure environment for CC6 criteria. Show me what resources are in scope...
+──────────────────────────────────────────────────────────────────────
+    Status: RunStatus.COMPLETED (19.5s)
+    Tools called: ['azure_function']
+    Response preview: The CC6 (Logical and Physical Access Controls) in-scope resources currently detected are two network security groups (NSGs):  1. Network Security Group: prod-open-nsg (Resource Group: rg-production)  ...
+
+──────────────────────────────────────────────────────────────────────
+  Turn 3/7: Access Controls Query
+  Prompt: Query the access controls for our production resource group (rg-production). Sho...
+──────────────────────────────────────────────────────────────────────
+    Status: RunStatus.COMPLETED (15.2s)
+    Tools called: ['azure_function']
+    Response preview: The access controls for the production resource group "rg-production" are as follows:  - RBAC Assignments: There are currently no RBAC assignments in this resource group.  - NSG Rules: There are 6 inb...
+
+──────────────────────────────────────────────────────────────────────
+  Turn 4/7: Defender Score
+  Prompt: What is our current Microsoft Defender secure score? Include the top security as...
+──────────────────────────────────────────────────────────────────────
+    Status: RunStatus.COMPLETED (18.5s)
+    Tools called: ['azure_function']
+    Response preview: Our current Microsoft Defender secure score is 7.94 out of a maximum 21, which is about 37.81%. Here are the top security assessments with issues:  1. Auditing on SQL server should be enabled - Status...
+
+──────────────────────────────────────────────────────────────────────
+  Turn 5/7: Policy Compliance
+  Prompt: Check our Azure Policy compliance status. Are there any non-compliant policies?...
+──────────────────────────────────────────────────────────────────────
+    Status: RunStatus.COMPLETED (16.5s)
+    Tools called: ['azure_function']
+    Response preview: There are currently multiple non-compliant Azure policies detected across various resource types such as subscriptions, storage accounts, SQL servers, key vaults, web sites, and others. These non-comp...
+
+──────────────────────────────────────────────────────────────────────
+  Turn 6/7: Generate POA&M
+  Prompt: Generate a POA&M entry for finding CC6-NSG-001: NSG prod-open-nsg in resource gr...
+──────────────────────────────────────────────────────────────────────
+    Status: RunStatus.COMPLETED (14.6s)
+    Tools called: ['azure_function']
+    Response preview: A POA&M entry has been generated for the NSG prod-open-nsg allowing RDP from any source, categorized under CC6 with a high severity. The remediation plan is scheduled within 30 days, with milestones i...
+
+──────────────────────────────────────────────────────────────────────
+  Turn 7/7: Sanitize Output
+  Prompt: Sanitize this text: 'The subscription ID is <REDACTED-SUBSCRIPTION-ID>...
+──────────────────────────────────────────────────────────────────────
+    Status: RunStatus.COMPLETED (43.4s)
+    Tools called: ['azure_function']
+    Response preview: The sanitized text is: "The subscription ID is [REDACTED-UUID] and the server IP is [REDACTED-IP]"....
+
+======================================================================
+  AGENT CONVERSATION TEST SUMMARY
+======================================================================
+  ✓ Turn 1: CC6 Gap Analysis          status=RunStatus.COMPLETED            tools=[azure_function] (15.1s)
+  ✓ Turn 2: CC6 Resource Scan         status=RunStatus.COMPLETED            tools=[azure_function] (19.5s)
+  ✓ Turn 3: Access Controls Query     status=RunStatus.COMPLETED            tools=[azure_function] (15.2s)
+  ✓ Turn 4: Defender Score            status=RunStatus.COMPLETED            tools=[azure_function] (18.5s)
+  ✓ Turn 5: Policy Compliance         status=RunStatus.COMPLETED            tools=[azure_function] (16.5s)
+  ✓ Turn 6: Generate POA&M            status=RunStatus.COMPLETED            tools=[azure_function] (14.6s)
+  ✓ Turn 7: Sanitize Output           status=RunStatus.COMPLETED            tools=[azure_function] (43.4s)
+
+  Completed: 7/7
+  Results saved to /home/ubuntu/aiuc1-soc2-compliance-lab/evidence/agent_conversation_results.json

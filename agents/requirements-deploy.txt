@@ -1,0 +1,13 @@
+# Required Python packages for the v2 agent deployment script
+
+# The --pre flag is required for the new Foundry SDK
+azure-ai-projects --pre
+
+# For authenticating to Azure
+azure-identity
+
+# For loading environment variables from a .env file
+python-dotenv
+
+# The OpenAI library is used by the azure-ai-projects SDK
+openai>=1.0.0

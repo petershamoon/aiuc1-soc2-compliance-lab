@@ -1,0 +1,138 @@
+{
+  "timestamp": "2026-03-01T16:25:25.537615",
+  "results": [
+    {
+      "name": "gap_analyzer",
+      "status": "success",
+      "sanitised": true,
+      "has_ai_disclosure": true,
+      "has_enforcement_metadata": true,
+      "data_keys": [
+        "cc_category",
+        "cc_description",
+        "scanner_status",
+        "gaps_found",
+        "gaps",
+        "scan_timestamp",
+        "scope"
+      ]
+    },
+    {
+      "name": "scan_cc_criteria",
+      "status": "success",
+      "sanitised": true,
+      "has_ai_disclosure": true,
+      "has_enforcement_metadata": true,
+      "data_keys": [
+        "cc_category",
+        "cc_description",
+        "resource_count",
+        "resources",
+        "scan_timestamp",
+        "scope"
+      ]
+    },
+    {
+      "name": "evidence_validator",
+      "status": "success",
+      "sanitised": true,
+      "has_ai_disclosure": true,
+      "has_enforcement_metadata": true,
+      "data_keys": [
+        "evidence_type",
+        "target",
+        "validation",
+        "evidence_map",
+        "type_ii_sampling"
+      ]
+    },
+    {
+      "name": "query_access_controls",
+      "status": "success",
+      "sanitised": true,
+      "has_ai_disclosure": true,
+      "has_enforcement_metadata": true,
+      "data_keys": [
+        "rbac",
+        "network_access",
+        "scope_note",
+        "scan_timestamp"
+      ]
+    },
+    {
+      "name": "query_defender_score",
+      "status": "success",
+      "sanitised": true,
+      "has_ai_disclosure": true,
+      "has_enforcement_metadata": true,
+      "data_keys": [
+        "secure_score",
+        "assessments",
+        "soc2_mapping",
+        "scan_timestamp"
+      ]
+    },
+    {
+      "name": "query_policy_compliance",
+      "status": "success",
+      "sanitised": true,
+      "has_ai_disclosure": true,
+      "has_enforcement_metadata": true,
+      "data_keys": [
+        "compliance_summary",
+        "non_compliant_policies",
+        "cis_benchmark",
+        "soc2_mapping",
+        "scan_timestamp"
+      ]
+    },
+    {
+      "name": "generate_poam_entry",
+      "status": "success",
+      "sanitised": true,
+      "has_ai_disclosure": true,
+      "has_enforcement_metadata": true,
+      "data_keys": [
+        "poam_entry",
+        "timeline_rationale"
+      ]
+    },
+    {
+      "name": "run_terraform_plan",
+      "status": "error",
+      "sanitised": true,
+      "has_ai_disclosure": true,
+      "has_enforcement_metadata": true,
+      "error": {
+        "code": "INVALID_WORKING_DIR",
+        "message": "Terraform working directory does not exist: /home/ubuntu/aiuc1-soc2-compliance-lab/terraform",
+        "details": {}
+      }
+    },
+    {
+      "name": "sanitize_output",
+      "status": "success",
+      "sanitised": false,
+      "has_ai_disclosure": true,
+      "has_enforcement_metadata": true,
+      "data_keys": [
+        "output_type",
+        "sanitised_output",
+        "redaction_stats",
+        "sanitised_at"
+      ]
+    },
+    {
+      "name": "log_security_event",
+      "status": "error",
+      "sanitised": true,
+      "has_ai_disclosure": true,
+      "has_enforcement_metadata": true,
+      "error": {
+        "code": "INVALID_CATEGORY",
+        "message": "Invalid category 'audit'. Must be one of: ['access_event', 'anomalous_behavior', 'approval_denied', 'compliance_finding', 'remediation_applied', 'scope_violation', 'secret_exposure', 'validation_failure']",
+        "details": {}
+      }
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+
+============================================================
+  Testing: gap_analyzer
+  Queue:   gap-analyzer-input → gap-analyzer-output
+  Corr ID: bf485cff
+============================================================
+  ✓ Message sent to gap-analyzer-input
+  ✓ Status: success
+    Sanitised: True
+    AI Disclosure: True
+    Enforcement Metadata: True
+    Data keys: ['cc_category', 'cc_description', 'scanner_status', 'gaps_found', 'gaps']
+
+============================================================
+  Testing: scan_cc_criteria
+  Queue:   scan-cc-criteria-input → scan-cc-criteria-output
+  Corr ID: dc88aa1d
+============================================================
+  ✓ Message sent to scan-cc-criteria-input
+  ✓ Status: success
+    Sanitised: True
+    AI Disclosure: True
+    Enforcement Metadata: True
+    Data keys: ['cc_category', 'cc_description', 'resource_count', 'resources', 'scan_timestamp']
+
+============================================================
+  Testing: evidence_validator
+  Queue:   evidence-validator-input → evidence-validator-output
+  Corr ID: c34b14cc
+============================================================
+  ✓ Message sent to evidence-validator-input
+  ✓ Status: success
+    Sanitised: True
+    AI Disclosure: True
+    Enforcement Metadata: True
+    Data keys: ['evidence_type', 'target', 'validation', 'evidence_map', 'type_ii_sampling']
+
+============================================================
+  Testing: query_access_controls
+  Queue:   query-access-controls-input → query-access-controls-output
+  Corr ID: 3ecb08cc
+============================================================
+  ✓ Message sent to query-access-controls-input
+  ✓ Status: success
+    Sanitised: True
+    AI Disclosure: True
+    Enforcement Metadata: True
+    Data keys: ['rbac', 'network_access', 'scope_note', 'scan_timestamp']
+
+============================================================
+  Testing: query_defender_score
+  Queue:   query-defender-score-input → query-defender-score-output
+  Corr ID: 5d485249
+============================================================
+  ✓ Message sent to query-defender-score-input
+  ✓ Status: success
+    Sanitised: True
+    AI Disclosure: True
+    Enforcement Metadata: True
+    Data keys: ['secure_score', 'assessments', 'soc2_mapping', 'scan_timestamp']
+
+============================================================
+  Testing: query_policy_compliance
+  Queue:   query-policy-compliance-input → query-policy-compliance-output
+  Corr ID: 2d4a28b9
+============================================================
+  ✓ Message sent to query-policy-compliance-input
+  ✓ Status: success
+    Sanitised: True
+    AI Disclosure: True
+    Enforcement Metadata: True
+    Data keys: ['compliance_summary', 'non_compliant_policies', 'cis_benchmark', 'soc2_mapping', 'scan_timestamp']
+
+============================================================
+  Testing: generate_poam_entry
+  Queue:   generate-poam-entry-input → generate-poam-entry-output
+  Corr ID: 1f8d9faa
+============================================================
+  ✓ Message sent to generate-poam-entry-input
+  ✓ Status: success
+    Sanitised: True
+    AI Disclosure: True
+    Enforcement Metadata: True
+    Data keys: ['poam_entry', 'timeline_rationale']
+
+============================================================
+  Testing: run_terraform_plan
+  Queue:   run-terraform-plan-input → run-terraform-plan-output
+  Corr ID: 02a537f9
+============================================================
+  ✓ Message sent to run-terraform-plan-input
+  ✗ Status: error
+    Sanitised: True
+    AI Disclosure: True
+    Enforcement Metadata: True
+    Error Code: INVALID_WORKING_DIR
+    Error Msg:  Terraform working directory does not exist: /home/ubuntu/aiuc1-soc2-compliance-lab/terraform
+
+============================================================
+  Testing: sanitize_output
+  Queue:   sanitize-output-input → sanitize-output-output
+  Corr ID: 14ad7c3f
+============================================================
+  ✓ Message sent to sanitize-output-input
+  ✓ Status: success
+    Sanitised: False
+    AI Disclosure: True
+    Enforcement Metadata: True
+    Data keys: ['output_type', 'sanitised_output', 'redaction_stats', 'sanitised_at']
+
+============================================================
+  Testing: log_security_event
+  Queue:   log-security-event-input → log-security-event-output
+  Corr ID: 62014ae9
+============================================================
+  ✓ Message sent to log-security-event-input
+  ✗ Status: error
+    Sanitised: True
+    AI Disclosure: True
+    Enforcement Metadata: True
+    Error Code: INVALID_CATEGORY
+    Error Msg:  Invalid category 'audit'. Must be one of: ['access_event', 'anomalous_behavior', 'approval_denied', 
+
+============================================================
+  LIVE FUNCTION TEST SUMMARY
+============================================================
+  ✓ gap_analyzer                   → success
+  ✓ scan_cc_criteria               → success
+  ✓ evidence_validator             → success
+  ✓ query_access_controls          → success
+  ✓ query_defender_score           → success
+  ✓ query_policy_compliance        → success
+  ✓ generate_poam_entry            → success
+  ✗ run_terraform_plan             → error
+  ✓ sanitize_output                → success
+  ✗ log_security_event             → error
+
+  Total: 10 | Passed: 8 | Errors: 2 | Timeouts: 0 | Exceptions: 0
+  Skipped (special): run_terraform_apply, git_commit_push
+
+  Results saved to /home/ubuntu/aiuc1-soc2-compliance-lab/evidence/live_function_results.json
+  Full envelopes saved to /home/ubuntu/aiuc1-soc2-compliance-lab/evidence/live_function_envelopes.json
