@@ -319,7 +319,7 @@ RESOURCE_GROUP_DEVELOPMENT=rg-development
 FUNCTION_APP_NAME=aiuc1-soc2-tools
 
 # Model
-MODEL_DEPLOYMENT_NAME=gpt-41-nano
+MODEL_DEPLOYMENT_NAME=gpt-41-mini
 
 # Managed Identity Principal IDs
 HUB_MI_PRINCIPAL=cac54591-...

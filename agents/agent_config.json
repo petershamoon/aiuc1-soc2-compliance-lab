@@ -4,13 +4,13 @@
     "functions_base_url": "https://aiuc1-soc2-tools.azurewebsites.net/api",
     "api_version": "2024-07-01-preview",
     "model_deployments": {
-      "gpt-4.1-nano": "gpt-41-nano"
+      "gpt-4.1-mini": "gpt-41-mini"
     }
   },
   "agents": {
-    "soc2-learning-agent": {
-      "model": "gpt-41-nano",
-      "display_name": "SOC 2 Learning Agent",
+    "soc2-compliance-agent": {
+      "model": "gpt-41-mini",
+      "display_name": "AIUC-1 SOC 2 Compliance Agent",
       "tools_count": 12,
       "tool_names": [
         "gap_analyzer",

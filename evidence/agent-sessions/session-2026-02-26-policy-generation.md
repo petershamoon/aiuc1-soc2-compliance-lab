@@ -2,7 +2,7 @@
 
 **Thread ID:** `thread_0zMOta9wdmp0aJ2AQNrljUQg`
 **Date:** February 26, 2026
-**Agent:** SOC 2 Compliance Auditor (gpt-4.1-mini → gpt-4.1-nano)
+**Agent:** SOC 2 Compliance Auditor (gpt-4.1-mini)
 **Enforcement Layer:** v1.2 (tuned scope + safety wrappers)
 
 ---

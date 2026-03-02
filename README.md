@@ -27,46 +27,7 @@ A single-agent compliance system built on Azure AI Foundry that assesses live Az
 
 The agent runs on Azure AI Foundry's **Standard Agent Setup** — not the basic hosted version, but the full deployment backed by Azure AI Search, Cosmos DB, and Storage Queues. Tool calls are asynchronous: the agent writes a message to an input queue, an Azure Function processes it, and the result goes to an output queue matched by correlation ID.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Azure AI Foundry Agent Service                │
-│                                                                  │
-│  ┌──────────────────┐    ┌──────────────────┐                   │
-│  │  System Prompt    │    │  gpt-4.1-nano    │                   │
-│  │  (AIUC-1 rules)  │    │  (model)         │                   │
-│  └────────┬─────────┘    └────────┬─────────┘                   │
-│           └──────────┬───────────┘                               │
-│                      ▼                                           │
-│              Tool Selection                                      │
-│                      │                                           │
-│         ┌────────────┼────────────┐                              │
-│         ▼            ▼            ▼                               │
-│   input-queue-1  input-queue-2  ...  input-queue-12              │
-└─────────┬────────────┬────────────┬─────────────────────────────┘
-          ▼            ▼            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Azure Function App                            │
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                  Enforcement Layer                       │    │
-│  │  INPUT:  Scope Enforcer → Injection Scan → Rate Limit   │    │
-│  │  OUTPUT: Sanitise → Disclose → Metadata → Audit Chain   │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                                                                  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐          │
-│  │gap_      │ │scan_cc_  │ │evidence_ │ │query_    │  ...      │
-│  │analyzer  │ │criteria  │ │validator │ │access_   │           │
-│  └──────────┘ └──────────┘ └──────────┘ │controls  │           │
-│                                          └──────────┘           │
-└─────────┬────────────┬────────────┬─────────────────────────────┘
-          ▼            ▼            ▼
-   output-queue-1  output-queue-2  ...  output-queue-12
-          │            │            │
-          └────────────┼────────────┘
-                       ▼
-              Agent retrieves result
-              (matched by CorrelationId)
-```
+![Architecture Diagram](docs/screenshots/architecture-diagram.png)
 
 This architecture is doing compliance work by default:
 
@@ -135,7 +96,7 @@ The full mapping with evidence links is in [`docs/AIUC1_CONTROL_MAPPING.md`](./d
 
 ## Tools (12 Azure Functions)
 
-All tools are queue-triggered Azure Functions defined in [`functions/function_app.py`](./functions/function_app.py). The OpenAPI spec is in [`functions_openapi.json`](./functions_openapi.json).
+All tools are queue-triggered Azure Functions defined in [`functions/function_app.py`](./functions/function_app.py). Each function is registered with the agent as an `AzureFunctionTool` backed by a dedicated input/output storage queue pair.
 
 ### Data Providers
 
