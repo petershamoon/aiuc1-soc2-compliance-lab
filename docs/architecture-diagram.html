@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIUC-1 SOC 2 Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a1628;
+  font-family: 'Inter', sans-serif;
+  color: #e2e8f0;
+  padding: 40px;
+  min-height: 100vh;
+}
+
+.title {
+  text-align: center;
+  margin-bottom: 36px;
+}
+.title h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+.title h1 span { color: #38bdf8; }
+.title p {
+  font-size: 14px;
+  color: #64748b;
+  margin-top: 6px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Layout */
+.diagram {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+/* Arrow connectors */
+.connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 4px 0;
+}
+.connector .line {
+  width: 2px;
+  height: 28px;
+  background: linear-gradient(to bottom, #38bdf8, #38bdf880);
+}
+.connector .label {
+  font-size: 10px;
+  color: #38bdf8;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 3px 10px;
+  background: #0f1d32;
+  border: 1px solid #1e3a5f;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+.connector .arrow {
+  width: 0; height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid #38bdf8;
+}
+
+/* Layer boxes */
+.layer {
+  width: 100%;
+  border-radius: 16px;
+  padding: 20px 24px;
+  position: relative;
+}
+.layer-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.layer-header .icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.layer-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.layer-header .subtitle {
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* User layer */
+.user-layer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px 28px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  width: auto;
+}
+.user-icon {
+  width: 36px; height: 36px;
+  background: #334155;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+.user-layer span { font-size: 14px; font-weight: 500; }
+
+/* Foundry layer */
+.foundry {
+  background: linear-gradient(135deg, #0c1f3d, #0f2847);
+  border: 1px solid #1e3a5f;
+}
+.foundry .icon { background: #1a73e8; }
+.foundry-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr;
+  gap: 12px;
+  align-items: center;
+}
+.agent-card {
+  background: linear-gradient(135deg, #1a73e8, #1565c0);
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  border: 1px solid #2196f3;
+  box-shadow: 0 0 30px rgba(26, 115, 232, 0.2);
+}
+.agent-card .emoji { font-size: 28px; margin-bottom: 8px; }
+.agent-card h3 { font-size: 14px; font-weight: 600; color: #fff; }
+.agent-card p { font-size: 11px; color: #bbdefb; margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+.side-services {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.service-chip {
+  background: #0f1d32;
+  border: 1px solid #1e3a5f;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.service-chip .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.service-chip .name { font-size: 12px; font-weight: 500; }
+.service-chip .id { font-size: 10px; color: #64748b; font-family: 'JetBrains Mono', monospace; }
+
+/* Queues layer */
+.queues {
+  background: linear-gradient(135deg, #1a1500, #1f1b05);
+  border: 1px solid #4a3f0a;
+}
+.queues .icon { background: #f59e0b; }
+.queue-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+}
+.queue-box {
+  background: #1f1b05;
+  border: 1px solid #4a3f0a;
+  border-radius: 8px;
+  padding: 10px 20px;
+  text-align: center;
+}
+.queue-box .count { font-size: 22px; font-weight: 700; color: #fbbf24; }
+.queue-box .desc { font-size: 11px; color: #a3842a; }
+.queue-arrow { font-size: 20px; color: #fbbf24; }
+
+/* Functions layer */
+.functions {
+  background: linear-gradient(135deg, #071a0e, #0a2214);
+  border: 1px solid #14532d;
+  position: relative;
+}
+.functions .icon { background: #16a34a; }
+.functions-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.func-group h4 {
+  font-size: 11px;
+  font-weight: 600;
+  color: #86efac;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #14532d;
+}
+.func-item {
+  background: #0a2e15;
+  border: 1px solid #14532d;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #bbf7d0;
+  margin-bottom: 6px;
+  transition: background 0.2s;
+}
+
+/* Enforcement layer */
+.enforcement {
+  margin-top: -8px;
+  background: transparent;
+  border: 2px dashed #7c3aed;
+  border-radius: 12px;
+  padding: 12px 20px;
+  width: 100%;
+}
+.enforcement-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.enforcement-header .icon {
+  width: 24px; height: 24px;
+  background: #7c3aed;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+.enforcement-header h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #c4b5fd;
+}
+.enforcement-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.enforcement-badge {
+  background: #1e1040;
+  border: 1px solid #4c1d95;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #c4b5fd;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.enforcement-badge .code {
+  color: #a78bfa;
+  font-weight: 600;
+}
+
+/* Target environments */
+.targets {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  width: 100%;
+}
+.target-env {
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+.target-env.prod {
+  background: linear-gradient(135deg, #1a0f00, #241505);
+  border: 1px solid #7c2d12;
+}
+.target-env.dev {
+  background: linear-gradient(135deg, #1a0f00, #241505);
+  border: 1px solid #7c2d12;
+}
+.target-env h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.target-env h3 .tag {
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.prod h3 { color: #fb923c; }
+.prod h3 .tag { background: #7c2d12; color: #fdba74; }
+.dev h3 { color: #fb923c; }
+.dev h3 .tag { background: #7c2d12; color: #fdba74; }
+.resource-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #1a0f05;
+  border: 1px solid #44200a;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.resource-item .warning {
+  color: #ef4444;
+  font-size: 10px;
+  font-weight: 600;
+}
+.resource-item .name { color: #fdba74; }
+
+/* Terraform layer */
+.terraform {
+  background: linear-gradient(135deg, #111827, #1f2937);
+  border: 1px solid #374151;
+  width: 100%;
+}
+.terraform .icon { background: #6366f1; }
+.terraform-grid {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+.tf-box {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 10px 16px;
+  text-align: center;
+}
+.tf-box .name { font-size: 12px; font-family: 'JetBrains Mono', monospace; color: #a5b4fc; }
+.tf-box .desc { font-size: 10px; color: #6b7280; margin-top: 2px; }
+.tf-arrow { color: #6366f1; font-size: 18px; }
+
+/* Telemetry side */
+.telemetry {
+  position: absolute;
+  right: -160px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.telemetry-line {
+  width: 40px;
+  height: 2px;
+  background: repeating-linear-gradient(to right, #64748b 0, #64748b 4px, transparent 4px, transparent 8px);
+}
+.telemetry-box {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px 14px;
+  text-align: center;
+}
+.telemetry-box .name { font-size: 11px; color: #94a3b8; }
+.telemetry-box .id { font-size: 9px; color: #475569; font-family: 'JetBrains Mono', monospace; }
+
+/* Side labels */
+.side-label {
+  position: absolute;
+  right: -12px;
+  top: 50%;
+  transform: translateY(-50%) rotate(90deg);
+  font-size: 9px;
+  color: #475569;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+</style>
+</head>
+<body>
+
+<div class="diagram">
+
+  <!-- Title -->
+  <div class="title">
+    <h1><span>AIUC-1</span> SOC 2 Compliance Lab — Architecture</h1>
+    <p>Azure AI Foundry Agent Service + Queue-Triggered Functions + Terraform Remediation</p>
+  </div>
+
+  <!-- User -->
+  <div class="user-layer">
+    <div class="user-icon">👤</div>
+    <span>User / Operator</span>
+  </div>
+
+  <div class="connector">
+    <div class="line"></div>
+    <div class="label">Natural language prompt</div>
+    <div class="line"></div>
+    <div class="arrow"></div>
+  </div>
+
+  <!-- Foundry Layer -->
+  <div class="layer foundry">
+    <div class="layer-header">
+      <div class="icon">🧠</div>
+      <div>
+        <h2>Azure AI Foundry Agent Service</h2>
+        <div class="subtitle">rg-aiuc1-foundry · eastus2</div>
+      </div>
+    </div>
+    <div class="foundry-grid">
+      <div class="side-services">
+        <div class="service-chip">
+          <div class="dot" style="background:#f59e0b"></div>
+          <div>
+            <div class="name">AI Search</div>
+            <div class="id">aiuc1-search</div>
+          </div>
+        </div>
+        <div class="service-chip">
+          <div class="dot" style="background:#8b5cf6"></div>
+          <div>
+            <div class="name">Key Vault</div>
+            <div class="id">aiuc1-keyvault</div>
+          </div>
+        </div>
+      </div>
+      <div class="agent-card">
+        <div class="emoji">🤖</div>
+        <h3>AIUC-1 SOC 2 Compliance Agent</h3>
+        <p>gpt-4.1-mini · 12 tools registered</p>
+      </div>
+      <div class="side-services">
+        <div class="service-chip">
+          <div class="dot" style="background:#06b6d4"></div>
+          <div>
+            <div class="name">Cosmos DB</div>
+            <div class="id">enterprise_memory</div>
+          </div>
+        </div>
+        <div class="service-chip">
+          <div class="dot" style="background:#ec4899"></div>
+          <div>
+            <div class="name">App Insights</div>
+            <div class="id">aiuc1-soc2-insights</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">
+    <div class="line"></div>
+    <div class="label">⬇ Input Queues &nbsp;│&nbsp; ⬆ Output Queues</div>
+    <div class="line"></div>
+    <div class="arrow"></div>
+  </div>
+
+  <!-- Queues Layer -->
+  <div class="layer queues">
+    <div class="layer-header">
+      <div class="icon">📨</div>
+      <div>
+        <h2>Azure Storage Queues</h2>
+        <div class="subtitle">aiuc1funcstorage</div>
+      </div>
+    </div>
+    <div class="queue-content">
+      <div class="queue-box">
+        <div class="count">12</div>
+        <div class="desc">Input Queues</div>
+      </div>
+      <div class="queue-arrow">⇄</div>
+      <div class="queue-box">
+        <div class="count">12</div>
+        <div class="desc">Output Queues</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">
+    <div class="line"></div>
+    <div class="label">Queue triggers</div>
+    <div class="line"></div>
+    <div class="arrow"></div>
+  </div>
+
+  <!-- Functions Layer -->
+  <div class="layer functions">
+    <div class="layer-header">
+      <div class="icon">⚡</div>
+      <div>
+        <h2>Azure Functions</h2>
+        <div class="subtitle">aiuc1-soc2-tools · Consumption Plan · Python 3.11</div>
+      </div>
+    </div>
+    <div class="functions-grid">
+      <div class="func-group">
+        <h4>📊 Data Providers</h4>
+        <div class="func-item">gap_analyzer</div>
+        <div class="func-item">scan_cc_criteria</div>
+        <div class="func-item">evidence_validator</div>
+      </div>
+      <div class="func-group">
+        <h4>🔒 Access & Security</h4>
+        <div class="func-item">query_access_controls</div>
+        <div class="func-item">query_defender_score</div>
+        <div class="func-item">query_policy_compliance</div>
+      </div>
+      <div class="func-group">
+        <h4>🔧 Remediation</h4>
+        <div class="func-item">generate_poam_entry</div>
+        <div class="func-item">run_terraform_plan</div>
+        <div class="func-item">run_terraform_apply</div>
+      </div>
+      <div class="func-group">
+        <h4>⚙️ Operations</h4>
+        <div class="func-item">log_security_event</div>
+        <div class="func-item">git_commit_push</div>
+        <div class="func-item">sanitize_output</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Enforcement Layer -->
+  <div class="enforcement">
+    <div class="enforcement-header">
+      <div class="icon">🛡️</div>
+      <h3>AIUC-1 Enforcement Layer — Wraps All Function Output</h3>
+    </div>
+    <div class="enforcement-badges">
+      <div class="enforcement-badge"><span class="code">D003</span> Policy Engine (Tool Restrictions)</div>
+      <div class="enforcement-badge"><span class="code">B006</span> Scope Enforcer (Boundaries)</div>
+      <div class="enforcement-badge"><span class="code">E015</span> Audit Chain (Immutable Trail)</div>
+      <div class="enforcement-badge"><span class="code">E016</span> AI Disclosure (Transparency)</div>
+      <div class="enforcement-badge"><span class="code">C007</span> Gateway (Human-in-the-Loop)</div>
+    </div>
+  </div>
+
+  <div class="connector">
+    <div class="line"></div>
+    <div class="label">Scans & queries Azure resources</div>
+    <div class="line"></div>
+    <div class="arrow"></div>
+  </div>
+
+  <!-- Target Environments -->
+  <div class="targets">
+    <div class="target-env prod">
+      <h3>🏭 Production <span class="tag">rg-production</span></h3>
+      <div class="resource-item">
+        <span class="name">prod-open-nsg</span>
+        <span class="warning">⚠ RDP 3389 open</span>
+      </div>
+      <div class="resource-item">
+        <span class="name">grclab-sql-02</span>
+        <span class="warning">⚠ Public access</span>
+      </div>
+      <div class="resource-item">
+        <span class="name">appdb</span>
+      </div>
+      <div class="resource-item">
+        <span class="name">aiuc1prodstorage</span>
+        <span class="warning">⚠ No infra encryption</span>
+      </div>
+    </div>
+    <div class="target-env dev">
+      <h3>🧪 Development <span class="tag">rg-development</span></h3>
+      <div class="resource-item">
+        <span class="name">dev-open-nsg</span>
+        <span class="warning">⚠ SSH 22 open</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">
+    <div class="line"></div>
+    <div class="label">Terraform remediates</div>
+    <div class="line"></div>
+    <div class="arrow"></div>
+  </div>
+
+  <!-- Terraform Layer -->
+  <div class="layer terraform">
+    <div class="layer-header">
+      <div class="icon">🏗️</div>
+      <div>
+        <h2>Terraform Remediation</h2>
+        <div class="subtitle">terraform/ · HCL modules</div>
+      </div>
+    </div>
+    <div class="terraform-grid">
+      <div class="tf-box">
+        <div class="name">main.tf</div>
+        <div class="desc">Root config</div>
+      </div>
+      <div class="tf-arrow">→</div>
+      <div class="tf-box">
+        <div class="name">modules/nsg-remediation</div>
+        <div class="desc">Deny rules + restrict CIDRs</div>
+      </div>
+      <div class="tf-arrow">→</div>
+      <div class="tf-box">
+        <div class="name">modules/storage-remediation</div>
+        <div class="desc">TLS 1.2 + encryption</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
